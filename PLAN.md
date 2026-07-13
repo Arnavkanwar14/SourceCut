@@ -16,7 +16,11 @@ A content marketer or agency reviewer who needs to turn a webinar, interview, or
 
 ### Demo promise
 
-"A marketer uploads a recorded product webinar, receives three social-post drafts with clip windows, sees a claim such as ‘customers save 40%’ marked unsupported, and replaces it with a timestamp-backed, publishable version."
+"A marketer uploads an original fictional product webinar, receives three social-post drafts with clip windows, sees a claim such as ‘customers save 40%’ marked unsupported, and replaces it with a timestamp-backed, publishable version."
+
+### Judge's 30-second aha
+
+The first screen opens a preloaded candidate that says, "Customers save 40%." The reviewer clicks its red evidence status, sees that the source only supports "up to 40% in a 12-customer pilot," accepts the safer rewrite, and sees the post become approval-ready. This must work without upload, account, API key, or waiting for a model.
 
 ### MVP scope
 
@@ -27,12 +31,14 @@ A content marketer or agency reviewer who needs to turn a webinar, interview, or
 - Mark claims as `supported`, `needs_review`, or `unsupported`, with a reason.
 - Let the reviewer accept an agent rewrite or edit/approve a claim.
 - Show an exportable final content package: clip time range, hook, caption, post copy, and evidence links.
+- Ship an evaluation fixture of at least 12 labelled claims so the evidence checker can be measured rather than merely demonstrated.
 
 ### Explicitly out of scope
 
 - Login, multi-user collaboration, notifications, billing, publishing to social networks, legal compliance certification, and full video rendering/export.
 - Downloading arbitrary YouTube URLs in the MVP.
 - Claiming that the tool determines legal truth. It only evaluates support against the uploaded transcript and the selected review rules.
+- Hiding uncertainty: a claim without adequate evidence must visibly remain `needs_review`, not be force-labelled safe.
 
 ## Approaches Considered
 
@@ -67,6 +73,7 @@ Local media upload
 
 ### Provider policy
 
+- Build the core functionality through Codex/GPT-5.6 during the Submission Period, retain the `/feedback` session ID where most work occurred, and preserve dated commits as evidence.
 - `OPENAI_API_KEY` configured: use GPT-5.6 for content planning and claim review.
 - Otherwise, `GROQ_API_KEY` configured: use the supported Groq model selected in `.env`.
 - Otherwise: load a seeded deterministic demo analysis so the complete review flow remains runnable without any key.
@@ -83,10 +90,10 @@ Local media upload
    **Verify:** `python -m uvicorn app.main:app --port 8000` then open the page and confirm the seeded content displays.
    **Fence:** Do not add accounts, uploads, external APIs, or video processing.
 
-2. **Goal:** Seed a permitted demo recording transcript plus a realistic content package with an unsupported claim and a safe rewrite.
+2. **Goal:** Create an original, fictional product-webinar demo recording/transcript plus a realistic content package with an unsupported claim and a safe rewrite.
    **Where:** `demo_data/`, `app/seed.py`.
    **Verify:** reset the local database and confirm the evidence panel jumps to the cited transcript span and the unsupported card shows its reason.
-   **Fence:** Do not represent seeded analysis as live LLM output.
+   **Fence:** Do not use third-party voices, music, trademarks, recordings, or copyrighted media; do not represent seeded analysis as live LLM output.
 
 3. **Goal:** Add basic route and evidence-matching tests.
    **Where:** `tests/`.
@@ -99,7 +106,7 @@ Local media upload
 
 1. **Goal:** Copy only the necessary media-normalization and CPU-transcription approach from `shortsmaker`, resolving FFmpeg through `imageio-ffmpeg` so it works on this Windows machine.
    **Where:** `app/media.py`, `app/transcription.py`.
-   **Verify:** upload a 1-3 minute permitted MP4/WAV; the UI shows ordered transcript segments with timestamps.
+   **Verify:** upload the original 1-3 minute demo MP4/WAV; the UI shows ordered transcript segments with timestamps.
    **Fence:** CPU only; no CUDA/ctranslate2 GPU configuration and no URL download support.
 
 2. **Goal:** Persist uploads, transcripts, and segment offsets under a gitignored runtime directory and SQLite.
@@ -131,6 +138,11 @@ Local media upload
    **Verify:** fixtures demonstrate: a direct quote is supported, an exaggerated percentage is unsupported, and a vague claim needs review.
    **Fence:** Do not make legal or regulatory compliance claims.
 
+4. **Goal:** Create a small, transparent evaluation set that includes direct quotes, supported paraphrases, numerical exaggerations, absolute-result claims, and genuinely ambiguous claims.
+   **Where:** `tests/fixtures/evidence_cases.json`, `tests/test_review.py`, `docs/evaluation.md`.
+   **Verify:** `python -m pytest` reports the expected label for all 12+ cases, and the README reports the result without claiming broader benchmark accuracy.
+   **Fence:** Do not tune only the red-flagged demo claim or present the fixture as real customer data.
+
 ### Stage 3: Reviewer Experience
 
 **Visible endpoint:** a reviewer can see why a draft is unsafe, adopt a grounded rewrite, and approve the final package.
@@ -156,8 +168,13 @@ Local media upload
 
 1. **Goal:** Add a one-command setup, demo mode, sample data instructions, a clean README, and an open-source license.
    **Where:** `README.md`, `scripts/`, `.env.example`.
-   **Verify:** in a new `.venv`, follow the README exactly and reach the seeded review demo without an API key.
-   **Fence:** Do not require judges to download a large model or configure a paid service.
+   **Verify:** in a new `.venv`, follow the README exactly and reach the seeded review demo without an API key, account, or large-model download.
+   **Fence:** Do not require judges to download a large model, configure a paid service, or provide credentials.
+
+1a. **Goal:** Publish the seeded review mode as a free, no-sign-in judge link if the chosen host can run the FastAPI app; otherwise provide a downloadable test build and a short local-start command as the official testing path.
+   **Where:** deployment configuration, `README.md`, Devpost testing instructions.
+   **Verify:** open the judge link in a private browser window and complete the claim-correction flow; if unavailable, complete the fresh-clone local flow on a second machine/user profile.
+   **Fence:** Do not make the public demo depend on uploads, model keys, or a free-tier background worker.
 
 2. **Goal:** Switch the configured OpenAI provider to GPT-5.6 once credits are granted; capture representative structured output and failures for prompt tuning.
    **Where:** `.env` locally, provider tests using mocks, `README.md` configuration notes.
@@ -169,7 +186,7 @@ Local media upload
    **Verify:** the video shows upload/seed -> candidate -> unsupported claim -> evidence -> rewrite -> approval/export, and explicitly narrates Codex and GPT-5.6 usage.
    **Fence:** Do not claim features that are mocked or not present in the submitted repository.
 
-4. **Goal:** Submit before the Build Week deadline with repo, README, public video, category, and `/feedback` session ID.
+4. **Goal:** Submit before the Build Week deadline with repo, README, public video, category, a working judge link/demo mode, and `/feedback` session ID.
    **Where:** Devpost submission form.
    **Verify:** Devpost displays Submitted status and every required field is populated.
    **Fence:** Do not leave submission work until the final hour.
@@ -181,8 +198,56 @@ Local media upload
 | OpenAI credits do not arrive | No credit/key confirmation by July 17 | Complete with Groq/local fallback, use Codex to build, and request credits through the official form; retain a provider switch ready for GPT-5.6. |
 | CPU transcription is slow or fails | A 3-minute clip takes over 10 minutes or errors | Use the seeded transcript for the video demo; limit uploads to 3 minutes and document CPU expectations. |
 | Generated claims are too vague to verify | Most claims become `needs_review` | Constrain candidate prompts to transcript-quoted claims and make the numeric-exaggeration example the featured demo. |
-| No licensed source video | No usable recording by Stage 1 | Demo with the seeded permitted transcript and a public/openly licensed source, while keeping local uploads functional. |
+| Original demo asset is not ready | No original recording/transcript by Stage 1 | Use the original seeded fictional transcript first, then record a simple original screen/webinar video to match it before final demo capture. |
 | Scope expands into video editing | Work begins on a timeline or render engine before Stage 3 | Stop; keep clips as timestamp ranges and use SourceCut as the reviewer/approval layer. |
+| Demo depends on a live model or transcription job | The first screen waits for an upload, job, or API response | Keep the seeded candidate as the default route and make live analysis a secondary route. |
+| Evidence feature feels staged | Only one claim or one outcome is shown | Maintain the labelled 12+ case fixture and show at least one `needs_review` result as honest uncertainty. |
+
+## Loop 1: Hackathon Compliance Audit
+
+This loop was completed against the official rules on 2026-07-13. It changes the plan rather than assuming a good demo is automatically a valid submission.
+
+| Rule or requirement | SourceCut decision | Proof before submission |
+| --- | --- | --- |
+| Build with Codex and GPT-5.6 during the Submission Period | Core implementation happens in this Codex project; use GPT-5.6 inference when credits/key are available. | `/feedback` session ID, dated commit history, and README section describing the collaboration. |
+| New project or meaningful extension only | SourceCut begins as an empty, standalone repository. `shortsmaker` is reference-only. | Initial commit and all SourceCut commits dated in the Submission Period; README names the reused concepts/dependencies. |
+| Working project must match video/text | The public seed demo is the canonical video flow; upload analysis is only shown in the video after it works. | Record the demo from the submitted commit and test the exact steps in a fresh environment. |
+| Video must be public YouTube, under three minutes, with audio explaining Codex and GPT-5.6 | Use a 2:40 voiceover script with 20 seconds of buffer. | Public YouTube URL; final playback and duration check before submission. |
+| Repo must be public with relevant license, or private shared with both judge emails | Use a public GitHub repository with a permissive license. | Repository URL, `LICENSE`, and README visible without sign-in. |
+| README must explain Codex/GPT-5.6 collaboration | Add a dedicated, factual build-log section. | README names prompts/work stages, key human decisions, test verification, and the `/feedback` session ID. |
+| Judges need free working access through judging | Seed demo runs without keys, accounts, or external services. | Fresh-environment verification plus a deployed demo or clear local one-command path. |
+| Submission must be original and rights-cleared | Create a fictional webinar, transcript, brand, visuals, and narration specifically for SourceCut. | `ASSET_NOTES.md` records origin and license for every demo asset; no third-party music/trademarks. |
+| Third-party packages/data must be authorized | Use only packages with compatible licenses and document them. | `THIRD_PARTY_NOTICES.md` and package lock/requirements. |
+| English materials | Product UI, README, testing instructions, and demo narration stay in English. | Final submission rehearsal. |
+
+### Compliance gates
+
+1. **Before Stage 1:** create `docs/CODEX_BUILD_LOG.md` and start recording what Codex did, what Arnav decided, and the verification performed.
+2. **Before recording:** create `ASSET_NOTES.md`; every visual, voice, logo, transcript, and sound used in the video must be original or explicitly licensed.
+3. **Before submission:** run the checklist above from a fresh clone, then compare the final video frame-by-frame against the submitted build.
+4. **No later than July 17, 12:00 PM PT:** submit the official Build Week credit request. Credits are helpful, but SourceCut must remain demonstrable without them.
+
+## Loop 2: Judge-Experience and Build-Risk Audit
+
+This loop was completed on 2026-07-13 after the compliance pass. The revised product is deliberately a **review copilot**, not a clip-generation app: that gives the project a specific problem, a testable technical claim, and a visual decision moment judges can understand immediately.
+
+| Risk in the earlier plan | Improvement now required | Why it matters to judging |
+| --- | --- | --- |
+| The best feature appeared only after a slow upload/transcription run | Seed the red-flag review case as the default first screen. | A judge can understand the product before any dependency fails. |
+| "Evidence-backed" could look like a prompt trick | Add a labelled 12+ claim evaluation set and deterministic checks. | Demonstrates a non-trivial implementation and honest limits. |
+| The solution could be mistaken for a generic video clipping tool | Make the selected claim, source quote, status reason, rewrite, and approval state the dominant UI flow. | Raises idea quality and potential impact by centering the review bottleneck. |
+| A private/local app is difficult to evaluate | Add a no-sign-in judge link or a fresh-clone test build as an acceptance criterion. | Satisfies the rules and reduces judge effort. |
+| The demo could overclaim legal certainty | Use the labels `supported by source`, `needs review`, and `unsupported by source`; state the limitation in product copy. | Keeps the project credible and avoids a misleading promise. |
+
+### Quality bar before recording
+
+1. The seed route reaches the first unsupported claim in under five seconds on a normal connection.
+2. Every cited evidence link highlights the exact transcript passage that supports or contradicts the claim.
+3. The correction changes the visible post copy and persists after refresh.
+4. The export contains the final copy, status, evidence timestamps, and a clear `needs_review` status when applicable.
+5. The 12+ fixture test suite passes with no live-model key.
+6. A fresh environment can run the demo using only the README.
+7. The product language never describes source matching as legal, factual, or regulatory certification.
 
 ## Demo Script Skeleton
 
