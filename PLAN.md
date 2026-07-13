@@ -71,6 +71,10 @@ Local media upload
     -> export JSON/Markdown content package
 ```
 
+### Evidence contract
+
+An evidence result is not a model opinion. Every displayed `supported` or `unsupported` result must contain: the claim text, a status, one or more immutable transcript segment IDs, the exact quoted source text, start/end timestamps, and a short human-readable reason. The UI may display an LLM-selected candidate, but it may not display a positive status until the referenced transcript segments actually exist and the stored quote matches them. Missing or ambiguous evidence becomes `needs_review`.
+
 ### Provider policy
 
 - Build the core functionality through Codex/GPT-5.6 during the Submission Period, retain the `/feedback` session ID where most work occurred, and preserve dated commits as evidence.
@@ -114,6 +118,11 @@ Local media upload
    **Verify:** restart the server and confirm the uploaded project/transcript remains visible.
    **Fence:** Do not commit media, transcripts, or user data.
 
+2a. **Goal:** Enforce local-only upload safety: accept only MP4, WAV, and MP3 below a documented small demo limit; generate opaque upload IDs; reject path-like filenames; and delete the uploaded file with its project record.
+   **Where:** `app/media.py`, `app/storage.py`, upload route tests.
+   **Verify:** automated tests reject an executable renamed as media, an oversized fixture, and a path-traversal filename; deleting a project removes its runtime media directory.
+   **Fence:** Do not claim enterprise-grade security or retain real customer recordings in the repository.
+
 3. **Goal:** Add a clear progress/error state for transcript jobs.
    **Where:** upload page and job-status endpoint.
    **Verify:** upload a known-valid clip and a deliberately invalid file; confirm completion and actionable error states.
@@ -125,7 +134,7 @@ Local media upload
 
 1. **Goal:** Define strict structured output models for content candidates, claims, evidence spans, severity, and rewrite suggestions.
    **Where:** `app/models.py`, `app/schemas.py`.
-   **Verify:** unit tests reject malformed candidate data and accept a valid fixture.
+   **Verify:** unit tests reject malformed candidate data, missing source IDs, timestamp ranges outside the transcript, and quote/segment mismatches; accept a valid fixture.
    **Fence:** Keep the schema limited to the fields displayed in the review UI.
 
 2. **Goal:** Implement the model provider adapter and prompts for: candidate selection, post drafting, atomic claim extraction, transcript-evidence lookup, and rewrite suggestions.
@@ -248,6 +257,52 @@ This loop was completed on 2026-07-13 after the compliance pass. The revised pro
 5. The 12+ fixture test suite passes with no live-model key.
 6. A fresh environment can run the demo using only the README.
 7. The product language never describes source matching as legal, factual, or regulatory certification.
+
+## Loop 3: Technical Feasibility and Evidence-Integrity Audit
+
+This pass removes the most dangerous technical shortcut: allowing an LLM to declare a claim safe without a mechanically verifiable source reference. SourceCut is credible only when the reviewer can inspect the underlying transcript, not when the interface merely sounds confident.
+
+| Finding | Plan change | Acceptance test |
+| --- | --- | --- |
+| A model can invent a plausible timestamp or quote | Add the evidence contract and validate segment IDs, quote text, and time bounds before rendering a status. | A fixture with a fabricated quote is rejected and becomes `needs_review`. |
+| Source wording can support only part of a claim | Store an exact quote and human reason, not only a score. | The `40%` claim links to the pilot qualifier; the rewrite preserves both the percentage and qualifier. |
+| Local media processing can expose filesystem paths or consume resources | Limit types/size, use opaque IDs, reject unsafe filenames, and delete runtime media with the project. | Invalid type, oversized file, traversal filename, and project deletion tests pass. |
+| The original demo needs a coherent narrative, not random sample data | Write a fictional three-minute webinar script about one made-up product with: a qualified pilot result, an unsupported broad claim, and one ambiguous statement. | `ASSET_NOTES.md` identifies each asset as original, and all three cases appear in the transcript/evaluation fixture. |
+| A live LLM can fail or return malformed JSON | Validate all provider output and preserve a deterministic seed path. | Provider-mock tests cover timeout, malformed JSON, and an empty evidence list without breaking the review page. |
+
+### Loop 3 non-negotiables
+
+1. `supported` means "supported by the shown transcript quote," never "true in the real world."
+2. No status renders without an evidence record that passes validation.
+3. Seeded demo data is explicitly labelled as a fictional demonstration, while the live upload path is a separate capability.
+4. The final repository contains no real client media, personal data, API key, or model response log.
+
+## Loop 4: Submission Rehearsal and Deadline Audit
+
+This pass treats the submission as a product release. The goal is to eliminate last-day dependencies and ensure every judge-facing statement can be proved from the repository and video.
+
+### Schedule with buffers
+
+| Date (PT) | Required outcome | Exit condition |
+| --- | --- | --- |
+| July 13 | Stage 0 skeleton and compliance files begun | Seed route and initial tests are visible locally. |
+| July 14 | Transcript ingestion and original fictional demo assets | Upload of the original short demo reaches a timestamped transcript. |
+| July 15 | Evidence engine plus 12+ evaluation fixture | All evidence-contract tests pass and the red-flag correction works. |
+| July 16 | Reviewer actions, export, README draft, and fresh-clone test | A second environment can run demo mode without a key. |
+| July 17 | Request credits by 12:00 PM PT; test GPT-5.6 path if granted | Credit request submitted; no-key path remains healthy. |
+| July 18 | Public judge access/test build and final UI polish | Private-browser rehearsal completes the full flow. |
+| July 19 | Record, edit, and upload the public YouTube video | 2:40 max video is public and its flow matches the committed build. |
+| July 20 | Submission dry run and final bug buffer | All Devpost fields, repo access, testing instructions, and `/feedback` ID are ready. |
+| July 21 | Submit by 5:00 PM PT | Devpost confirms Submitted; do not rely on same-day implementation work. |
+
+### Final rehearsal checklist
+
+1. Start from a private browser or fresh clone, not an already logged-in development environment.
+2. Complete the red-flag correction flow without a model key, account, or upload.
+3. Run tests, open the exported Markdown/JSON, and check the actual app version against the video capture.
+4. Verify the YouTube video is public, has clear English audio, is under three minutes, and describes both Codex and GPT-5.6 truthfully.
+5. Verify the public repository has a license, no secrets/media, a working README, `/feedback` ID, and testing instructions.
+6. Save a Devpost draft early; make the final submit only after each required submission field has been checked.
 
 ## Demo Script Skeleton
 
