@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.llm import ModelCandidate, ModelCandidateSet, generate_candidates
+from app.production import clean_clip_window
 from app.review import Evidence, TranscriptSegment, review_claim
 
 
@@ -42,3 +43,14 @@ def test_model_candidates_are_rechecked_against_transcript() -> None:
     candidates = generate_candidates(segments, api_key="test-key", model="gpt-5.6", client_factory=lambda **_: FakeClient())
     assert candidates
     assert candidates[0].claim.status == "unsupported"
+
+
+def test_auto_clip_window_finishes_the_spoken_thought() -> None:
+    segments = [
+        TranscriptSegment(id="s1", start=1.0, end=3.0, text="A thought begins"),
+        TranscriptSegment(id="s2", start=3.0, end=5.0, text="and ends here."),
+        TranscriptSegment(id="s3", start=6.0, end=11.0, text="A second complete thought follows."),
+    ]
+    start, end = clean_clip_window(segments, "s2", 30.0)
+    assert start == pytest.approx(0.65)
+    assert end == pytest.approx(11.5)

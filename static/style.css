@@ -237,6 +237,8 @@ footer { width: min(1200px, calc(100% - 48px)); margin: 0 auto; padding: 0 0 48p
 .proposal-column .section-heading .eyebrow { color: var(--mint); }
 .proposal-column .section-heading h2 { font-size: 36px; }
 .proposal-column .section-heading button:disabled { background: var(--slate); color: var(--ash); cursor: not-allowed; transform: none; }
+.proposal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.proposal-actions button { min-height: 40px; padding: 8px 12px; font-size: 12px; }
 .clip-proposals { display: grid; gap: 14px; }
 .clip-proposal { padding: 20px; border-radius: 20px; background: var(--paper); color: var(--carbon); transition: transform 180ms ease; }
 .clip-proposal:hover { transform: translateX(6px); }

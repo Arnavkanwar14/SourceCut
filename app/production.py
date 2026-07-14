@@ -244,9 +244,7 @@ def _insert_proposals(project_id: int, segments: list[TranscriptSegment], settin
             source = next((segment for segment in segments if segment.id == evidence.segment_ids[0]), None)
             if not source:
                 continue
-            requested = float(settings["duration"])
-            start = max(0.0, source.start - min(3.0, source.start))
-            end = max(source.end + 3.0, start + min(requested, max(8.0, source.end - source.start + 6.0)))
+            start, end = clean_clip_window(segments, source.id, float(settings["duration"]))
             planned.append((
                 candidate.title, start, end, candidate.draft, candidate.claim.rewrite,
                 int(source.id.removeprefix("segment-")), evidence.quote, candidate.claim.status,
@@ -261,6 +259,56 @@ def _insert_proposals(project_id: int, segments: list[TranscriptSegment], settin
             [(project_id, *proposal) for proposal in planned],
         )
         connection.commit()
+
+
+def clean_clip_window(segments: list[TranscriptSegment], source_id: str, requested: float) -> tuple[float, float]:
+    """Keep auto-selected clips on complete transcript thoughts, not arbitrary offsets."""
+    anchor = next((index for index, segment in enumerate(segments) if segment.id == source_id), None)
+    if anchor is None:
+        return 0.0, min(requested, 15.0)
+    first = anchor
+    while first > 0 and not re.search(r"[.!?][\"')\]]*$", segments[first - 1].text.strip()):
+        first -= 1
+    last = anchor
+    minimum = min(max(10.0, requested * 0.35), 18.0)
+    while last < len(segments) - 1:
+        duration = segments[last].end - segments[first].start
+        closes_thought = bool(re.search(r"[.!?][\"')\]]*$", segments[last].text.strip()))
+        if duration >= minimum and closes_thought:
+            break
+        next_duration = segments[last + 1].end - segments[first].start
+        if next_duration > requested and closes_thought:
+            break
+        last += 1
+    return max(0.0, segments[first].start - 0.35), segments[last].end + 0.5
+
+
+def refine_project_cuts(project_id: int) -> bool:
+    project = get_project(project_id)
+    if not project:
+        return False
+    settings = json.loads(project["settings_json"])
+    segments = [
+        TranscriptSegment(id=f"segment-{row['id']}", start=row["start"], end=row["end"], text=row["text"])
+        for row in get_segments(project_id)
+    ]
+    clips = get_clips(project_id)
+    for clip in clips:
+        if not clip["evidence_segment_id"]:
+            continue
+        start, end = clean_clip_window(segments, f"segment-{clip['evidence_segment_id']}", float(settings["duration"]))
+        old_output = Path(clip["output_path"]) if clip["output_path"] else None
+        if old_output and old_output.exists() and old_output.resolve().is_relative_to(OUTPUT_DIR.resolve()):
+            old_output.unlink(missing_ok=True)
+            old_output.with_suffix(".srt").unlink(missing_ok=True)
+            old_output.with_suffix(".voice.mp3").unlink(missing_ok=True)
+        with closing(db()) as connection:
+            connection.execute(
+                "UPDATE clip_proposals SET start = ?, end = ?, render_status = 'draft', output_path = '', error = '' WHERE id = ?",
+                (start, end, clip["id"]),
+            )
+            connection.commit()
+    return True
 
 
 def run_analysis(project_id: int, job_id: int) -> None:
@@ -318,12 +366,42 @@ def set_selected(project_id: int, clip_id: int, selected: bool) -> bool:
 
 def render_filter(platform: str, framing: str) -> str:
     if platform == "vertical":
-        return "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920"
+        return (
+            "split[background][foreground];"
+            "[background]scale=1080:1920:force_original_aspect_ratio=increase,"
+            "crop=1080:1920,boxblur=20:2[background];"
+            "[foreground]scale=1080:1920:force_original_aspect_ratio=decrease[foreground];"
+            "[background][foreground]overlay=(W-w)/2:(H-h)/2"
+        )
     if platform == "square":
         return "scale=1080:1080:force_original_aspect_ratio=increase,crop=1080:1080"
     if framing == "balanced":
         return "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"
     return "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080"
+
+
+def srt_timestamp(seconds: float) -> str:
+    milliseconds = max(0, round(seconds * 1000))
+    hours, milliseconds = divmod(milliseconds, 3_600_000)
+    minutes, milliseconds = divmod(milliseconds, 60_000)
+    seconds, milliseconds = divmod(milliseconds, 1000)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
+
+def write_timed_subtitles(project_id: int, clip: sqlite3.Row, destination: Path) -> None:
+    start = float(clip["start"])
+    end = float(clip["end"])
+    cues: list[str] = []
+    for index, segment in enumerate(get_segments(project_id), 1):
+        cue_start = max(start, float(segment["start"]))
+        cue_end = min(end, float(segment["end"]))
+        if cue_end <= cue_start:
+            continue
+        text = str(segment["text"]).replace("-->", "->").replace("\n", " ")
+        cues.append(f"{index}\n{srt_timestamp(cue_start - start)} --> {srt_timestamp(cue_end - start)}\n{text}\n")
+    if not cues:
+        cues.append(f"1\n00:00:00,000 --> {srt_timestamp(end - start)}\n{clip['caption']}\n")
+    destination.write_text("\n".join(cues), encoding="utf-8")
 
 
 def _render_one(project: sqlite3.Row, clip: sqlite3.Row, settings: dict[str, object]) -> tuple[bool, str, str]:
@@ -336,14 +414,10 @@ def _render_one(project: sqlite3.Row, clip: sqlite3.Row, settings: dict[str, obj
     duration = max(0.2, float(clip["end"]) - float(clip["start"]))
     filter_chain = render_filter(str(settings["platform"]), str(settings["framing"]))
     if settings["captions"] != "none":
-        end_ms = int(duration * 1000)
-        minutes, milliseconds = divmod(end_ms, 60_000)
-        seconds, milliseconds = divmod(milliseconds, 1000)
-        text = str(clip["caption"]).replace("-->", "->").replace("\n", " ")
-        captions.write_text(f"1\n00:00:00,000 --> 00:{minutes:02d}:{seconds:02d},{milliseconds:03d}\n{text}\n", encoding="utf-8")
+        write_timed_subtitles(int(project["id"]), clip, captions)
         subtitle_file = str(captions).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
-        font_size = "52" if settings["captions"] == "bold" else "34"
-        style = f"FontName=Arial,FontSize={font_size},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Alignment=2,MarginV=92"
+        font_size = "8" if settings["captions"] == "bold" else "6"
+        style = f"FontName=Arial,FontSize={font_size},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1,Alignment=2,MarginV=20"
         filter_chain = f"{filter_chain},subtitles=filename='{subtitle_file}':force_style='{style}'"
     if settings.get("proof_cards"):
         filter_chain += ",drawbox=x=40:y=40:w=440:h=105:color=black@0.9:t=fill:enable='between(t,0.4,2.7)',drawtext=text='SOURCE EVIDENCE':fontcolor=white:fontsize=28:x=66:y=78:enable='between(t,0.4,2.7)'"
