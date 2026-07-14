@@ -4,9 +4,9 @@
 
 **SourceCut** is a Work & Productivity project for marketing and agency teams. It turns a long-form recording into publishable social-content drafts, but its core value is a review surface that links each generated claim to a transcript timestamp and flags unsupported or risky wording. The project starts in this empty directory; `shortsmaker` is a read-only reference for its local transcription, timestamps, and FFmpeg patterns. The chosen approach is a standalone Python/FastAPI app with a simple server-rendered review interface, free-first transcription, and a provider adapter that uses Groq during development and GPT-5.6 after Build Week credits are available.
 
-**Current status:** Stages 0 through 3 are complete and verified. The no-key seeded review page supports evidence links, rewrite editing with deterministic rechecking, approval/restore state, and Markdown/JSON export. Stage 4 repository documentation and local judge instructions are complete; public hosting, a GitHub remote, Build Week `/feedback` session ID, and the public demo video remain external submission tasks. Live GPT-5.6/Groq generation remains pending a configured key.
+**Current status:** Stages 0 through 5 are complete and verified. The no-key seeded dashboard and review flow support source playback, evidence links, rewrite editing with deterministic rechecking, approval/restore state, project persistence, production jobs, local MP4 rendering, and Markdown/JSON exports. Stage 4 repository documentation and local judge instructions are complete; public hosting, a GitHub remote, Build Week `/feedback` session ID, and the public demo video remain external submission tasks. GPT-5.6 generation is optional and disabled until explicitly configured.
 
-**Next step:** Add the optional model-provider adapter after a key is available, then complete the public deployment and Devpost checklist from a fresh clone.
+**Next step:** Complete the public deployment and Devpost checklist from a fresh clone, then use the optional provider only after a key is available.
 
 ## Product Definition
 
@@ -35,7 +35,7 @@ The first screen opens a preloaded candidate that says, "Customers save 40%." Th
 
 ### Explicitly out of scope
 
-- Login, multi-user collaboration, notifications, billing, publishing to social networks, legal compliance certification, and full video rendering/export.
+- Login, multi-user collaboration, notifications, billing, publishing to social networks, legal compliance certification, URL downloads, external B-roll search, and a general-purpose timeline editor.
 - Downloading arbitrary YouTube URLs in the MVP.
 - Claiming that the tool determines legal truth. It only evaluates support against the uploaded transcript and the selected review rules.
 - Hiding uncertainty: a claim without adequate evidence must visibly remain `needs_review`, not be force-labelled safe.

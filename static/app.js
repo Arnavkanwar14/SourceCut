@@ -37,7 +37,21 @@
       target.classList.remove("evidence-focus");
       window.requestAnimationFrame(() => target.classList.add("evidence-focus"));
       window.setTimeout(() => target.classList.remove("evidence-focus"), 1200);
+      const player = document.querySelector("[data-source-player]");
+      const time = Number(link.dataset.seek);
+      if (player && Number.isFinite(time)) player.currentTime = time;
       history.replaceState(null, "", id);
+    });
+  });
+
+  document.querySelectorAll("[data-seek]").forEach((control) => {
+    if (control.matches("[data-evidence-link]")) return;
+    control.addEventListener("click", () => {
+      const player = document.querySelector("[data-source-player]");
+      const time = Number(control.dataset.seek);
+      if (!player || !Number.isFinite(time)) return;
+      player.currentTime = time;
+      player.play().catch(() => {});
     });
   });
 
@@ -47,9 +61,52 @@
       if (!button) return;
       form.classList.add("form-pending");
       button.disabled = true;
-      button.textContent = button.classList.contains("secondary") ? "Restoring..." : "Applying...";
+      button.textContent = button.classList.contains("secondary") ? "Updating..." : "Applying...";
     });
   });
+
+  const productionForm = document.querySelector("[data-production-form]");
+  if (productionForm) {
+    const file = productionForm.querySelector("input[type=file]");
+    const fileName = productionForm.querySelector("[data-file-name]");
+    const message = productionForm.querySelector(".form-message");
+    file?.addEventListener("change", () => {
+      const picked = file.files?.[0];
+      if (picked && fileName) fileName.textContent = `${picked.name} · ${(picked.size / 1024 / 1024).toFixed(1)} MB selected`;
+    });
+    productionForm.addEventListener("submit", () => {
+      const button = productionForm.querySelector("button");
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Creating project...";
+      }
+      if (message) message.textContent = "Your source is being stored locally, then SourceCut will open its production desk.";
+    });
+  }
+
+  const jobPanel = document.querySelector("[data-job-status]");
+  if (jobPanel) {
+    const endpoint = jobPanel.dataset.jobStatus;
+    const detail = jobPanel.querySelector("[data-job-detail]");
+    const state = jobPanel.querySelector("[data-job-state]");
+    const poll = async () => {
+      try {
+        const response = await fetch(endpoint, { headers: { Accept: "application/json" } });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data.job && detail) detail.textContent = data.job.detail || data.job.stage;
+        if (data.job && state) state.textContent = data.job.status;
+        if (data.job?.status === "done" || data.job?.status === "failed") {
+          window.location.reload();
+          return;
+        }
+        window.setTimeout(poll, 1500);
+      } catch (_) {
+        window.setTimeout(poll, 3000);
+      }
+    };
+    window.setTimeout(poll, 900);
+  }
 
   document.querySelectorAll(".angle").forEach((angle) => {
     angle.addEventListener("click", () => {

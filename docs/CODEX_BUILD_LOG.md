@@ -13,10 +13,11 @@ SourceCut is a Work & Productivity review copilot for marketing teams. The team 
 | Evidence engine | Implemented structured transcript evidence validation and 12 labelled evaluation cases. | A positive status must validate IDs, exact quote, and timestamps mechanically. |
 | Reviewer workflow | Added rewrite approval, custom-edit rechecking, and Markdown/JSON export. | Export only approved rewrites with their source evidence. |
 | UI | Applied the supplied editorial reference with original SourceCut branding and a generated original evidence object. | Do not reuse Dayos assets, text, logos, or font files. |
+| Production desk | Built persistent projects, source playback, transcript seeking, evidence-linked clip proposals, local job polling, source-cut rendering, output playback, and exports. | Borrow flow ideas from Shortsmaker/OpenMontage without copying their code, media, or branding; only supported claims can enter the render queue. |
 
 ## Runtime model status
 
-The project was built in Codex during Build Week. The submitted seed flow is deterministic and does not call an external model. GPT-5.6 runtime inference is intentionally not represented as complete until an API key and credits are configured.
+The project was built in Codex during Build Week. The submitted seed flow is deterministic and does not call an external model. GPT-5.6 structured transcript analysis is available only when a local key and explicit feature flag are configured; all returned candidates are revalidated locally.
 
 ## Required submission evidence
 
