@@ -9,3 +9,4 @@
 - 2026-07-14: Stage 1 uses `imageio-ffmpeg` and `faster-whisper` with `tiny.en` forced to CPU `int8`; the model is cached locally after its first download, and live uploads stay separate from the no-key seeded judge demo.
 - 2026-07-14: Stage 2 validates evidence locally before any model output can be trusted: source IDs, exact quote, and timestamps must match, while dropped pilot or "up to" qualifiers make numerical claims unsupported.
 - 2026-07-14: SourceCut UI uses the supplied brutalist-editorial reference as a functional work surface: warm gray canvas, flat white/black panels, mint/yellow micro-accents, large rounded cards, and no shadows or gradients.
+- 2026-07-14: Rebuilt the SourceCut UI around the selected Refero/Dayos system with an original SourceCut-only evidence-object asset, local fallback fonts, and high-motion interactions that honor reduced-motion preferences; no third-party branding or visual assets were used.

@@ -13,6 +13,8 @@ def test_seeded_review_is_visible() -> None:
     assert "ApexFlow product webinar" in response.text
     assert "Customers save 40%." in response.text
     assert "Evidence: s1, s2" in response.text
+    assert "/static/app.js" in response.text
+    assert "/static/sourcecut-evidence-object.png" in response.text
 
 
 def test_grounded_rewrite_can_be_accepted_and_restored() -> None:
