@@ -60,11 +60,65 @@
 
   document.querySelectorAll("[data-action-form]").forEach((form) => {
     form.addEventListener("submit", () => {
+      if (form.matches("[data-selection-form]")) return;
       const button = form.querySelector("button");
       if (!button) return;
       form.classList.add("form-pending");
       button.disabled = true;
       button.textContent = button.classList.contains("secondary") ? "Updating..." : "Applying...";
+    });
+  });
+
+  const renderLabel = (count) => `Render ${count} selected clip${count === 1 ? "" : "s"}`;
+  document.querySelectorAll("[data-selection-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = form.querySelector("button");
+      const selectedInput = form.querySelector('input[name="selected"]');
+      if (!button || !selectedInput || form.dataset.pending === "true") return;
+
+      form.dataset.pending = "true";
+      form.classList.add("form-pending");
+      button.disabled = true;
+      try {
+        const response = await fetch(form.action, {
+          method: "POST",
+          body: new FormData(form),
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) throw new Error("Selection could not be saved.");
+        const data = await response.json();
+        const card = form.closest("[data-clip-card]");
+        const status = card?.querySelector(".clip-head .status");
+        const selected = Boolean(data.selected);
+        selectedInput.value = String(!selected);
+        button.textContent = selected ? "Remove from render" : "Select for render";
+        button.classList.toggle("secondary", selected);
+        button.classList.toggle("select-button", !selected);
+        card?.classList.toggle("chosen", selected);
+        if (status) status.textContent = selected ? "selected" : "supported";
+        document.querySelectorAll("[data-selected-count]").forEach((count) => { count.textContent = data.selected_count; });
+        const progress = document.querySelector(".project-hero .progress strong");
+        if (progress) progress.textContent = `${data.selected_count}/${data.clip_count}`;
+        const renderButton = document.querySelector("[data-render-button]");
+        if (renderButton) {
+          renderButton.disabled = data.selected_count === 0;
+          renderButton.textContent = renderLabel(data.selected_count);
+        }
+      } catch (_) {
+        button.disabled = false;
+        let error = form.querySelector(".error");
+        if (!error) {
+          error = document.createElement("p");
+          error.className = "error compact";
+          error.setAttribute("role", "alert");
+          form.append(error);
+        }
+        error.textContent = "Could not update this selection. Try again.";
+      } finally {
+        form.dataset.pending = "false";
+        form.classList.remove("form-pending");
+      }
     });
   });
 

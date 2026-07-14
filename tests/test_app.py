@@ -143,6 +143,25 @@ def test_project_export_only_includes_selected_clips(monkeypatch, tmp_path: Path
     assert exported.json()["clips"][0]["evidence"]["quote"]
 
 
+def test_clip_selection_returns_json_without_reloading_workspace(tmp_path: Path) -> None:
+    source = tmp_path / "selection-demo.mp4"
+    source.write_bytes(b"video")
+    project_id = production.create_project("Selection demo", source, production.settings_from_form({}))
+    with production.closing(production.db()) as connection:
+        cursor = connection.execute(
+            "INSERT INTO clip_proposals (project_id, title, start, end, hook, caption, evidence_quote, claim_status, reason) VALUES (?, ?, 0, 1, ?, ?, ?, 'supported', ?)",
+            (project_id, "Moment", "Moment", "Moment", "Moment", "Direct source wording."),
+        )
+        connection.commit()
+    response = client.post(
+        f"/projects/{project_id}/clips/{cursor.lastrowid}/select",
+        data={"selected": "true"},
+        headers={"Accept": "application/json"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"clip_id": cursor.lastrowid, "selected": True, "selected_count": 1, "clip_count": 1}
+
+
 def test_failed_render_does_not_stop_other_selected_clips(monkeypatch, tmp_path: Path) -> None:
     source = tmp_path / "original.mp4"
     source.write_bytes(b"video")

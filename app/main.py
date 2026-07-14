@@ -6,7 +6,7 @@ from contextlib import closing
 from html import escape
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -244,8 +244,8 @@ def workspace(project: sqlite3.Row) -> str:
     job_detail = escape(job["detail"] if job else "Waiting for the next production action.")
     header = project_header("PROJECT WORKSPACE", project["name"], f'''<span class="project-meta">{escape(PLATFORMS[settings["platform"]]["label"])} &middot; {settings["duration"]} seconds &middot; {settings["clip_count"]} requested clips</span>''', f"{selected}/{len(clips)}", "clips selected")
     progress = f'''<section class="job-panel" data-job-status="/projects/{project["id"]}/status" data-reveal><div><p class="eyebrow">LOCAL JOB</p><h2>{escape(job["stage"] if job else "Ready")}</h2><p data-job-detail>{job_detail}</p></div><span class="status" data-job-state>{escape(job["status"] if job else status)}</span></section>''' if processing else ""
-    render_action = f'''<div class="proposal-actions"><form method="post" action="/projects/{project["id"]}/refine-cuts" data-action-form><button class="secondary" {'disabled' if processing else ''}>Rebuild clip picks</button></form><form method="post" action="/projects/{project["id"]}/render" data-action-form><button {'disabled' if not selected or processing else ''}>Render {selected} selected clip{'s' if selected != 1 else ''}</button></form></div>'''
-    selection_summary = f'''<div class="selection-summary" aria-live="polite"><span><strong>{selected}</strong> selected for render</span><span><strong>{ready}</strong> finished outputs</span></div>'''
+    render_action = f'''<div class="proposal-actions"><form method="post" action="/projects/{project["id"]}/refine-cuts" data-action-form><button class="secondary" {'disabled' if processing else ''}>Rebuild clip picks</button></form><form method="post" action="/projects/{project["id"]}/render" data-action-form><button data-render-button {'disabled' if not selected or processing else ''}>Render {selected} selected clip{'s' if selected != 1 else ''}</button></form></div>'''
+    selection_summary = f'''<div class="selection-summary" aria-live="polite"><span><strong data-selected-count>{selected}</strong> selected for render</span><span><strong data-ready-count>{ready}</strong> finished outputs</span></div>'''
     desk = f'''{progress}<section class="production-workspace" data-reveal><aside class="source-column"><div class="panel-heading"><p class="eyebrow">SOURCE PREVIEW</p><span>Click a proposal to seek</span></div>{player}<p class="source-note">Full-frame source stays linked to each proposal. Use the timestamped transcript to check context before selecting.</p></aside><section id="clip-review" class="proposal-column"><div class="section-heading"><div><p class="eyebrow">CLIP REVIEW</p><h2>Review before render.</h2></div>{render_action}</div>{selection_summary}<div class="clip-proposals">{clip_cards}</div></section><aside class="transcript-column"><div class="panel-heading"><p class="eyebrow">SOURCE TRANSCRIPT</p><span>Click to seek</span></div><ol>{transcript}</ol></aside></section><section id="outputs" class="outputs-library" data-reveal><div class="section-heading"><div><p class="eyebrow">OUTPUTS</p><h2>Rendered production files</h2></div><a href="/projects/{project["id"]}/export.json">Export package</a></div><div class="output-grid">{outputs}</div></section>'''
     return document(project["name"], "Production workspace", "/upload", "New project", status, header + desk)
 
@@ -254,7 +254,7 @@ def clip_card(project_id: int, clip: sqlite3.Row) -> str:
     is_safe = clip["claim_status"] == "supported"
     selected = bool(clip["selected"])
     status_text = "selected" if selected else clip["claim_status"].replace("_", " ")
-    selection = f'''<form method="post" action="/projects/{project_id}/clips/{clip["id"]}/select" data-action-form data-selection-form><input type="hidden" name="selected" value="{str(not selected).lower()}"><button class="{'secondary' if selected else 'select-button'}" {'disabled' if not is_safe else ''}>{'Remove from render' if selected else ('Select for render' if is_safe else 'Fix evidence first')}</button></form>'''
+    selection = f'''<form method="post" action="/projects/{project_id}/clips/{clip["id"]}/select" data-selection-form><input type="hidden" name="selected" value="{str(not selected).lower()}"><button class="{'secondary' if selected else 'select-button'}" {'disabled' if not is_safe else ''}>{'Remove from render' if selected else ('Select for render' if is_safe else 'Fix evidence first')}</button></form>'''
     error = f'<p class="error compact">{escape(clip["error"])}</p>' if clip["error"] else ""
     time = f"{format_time(clip['start'])}&ndash;{format_time(clip['end'])}"
     return f'''<article class="clip-proposal {'chosen' if selected else ''} {escape(clip["claim_status"])}" data-clip-card><div class="clip-head"><span class="status">{escape(status_text)}</span><a class="clip-time" href="#segment-{clip["evidence_segment_id"]}" data-evidence-link data-seek="{clip["start"]}">{time}</a></div><div class="clip-content"><h3>{escape(clip["title"])}</h3><p class="clip-hook">{escape(clip["hook"])}</p><p class="clip-caption"><span>POST CAPTION</span>{escape(clip["caption"])}</p><p class="reason">{escape(clip["reason"])}</p></div><div class="clip-actions"><a class="clip-preview" href="#segment-{clip["evidence_segment_id"]}" data-evidence-link data-seek="{clip["start"]}">Source evidence preview</a>{selection}<span class="render-state">{escape(clip["render_status"])}</span></div>{error}</article>'''
@@ -293,9 +293,12 @@ def project_status(project_id: int) -> JSONResponse:
 
 
 @app.post("/projects/{project_id}/clips/{clip_id}/select")
-def select_clip(project_id: int, clip_id: int, selected: bool = Form(...)) -> RedirectResponse:
+def select_clip(project_id: int, clip_id: int, request: Request, selected: bool = Form(...)) -> Response:
     if not set_selected(project_id, clip_id, selected):
         raise HTTPException(status_code=422, detail="Only source-supported clips can be selected for rendering.")
+    if "application/json" in request.headers.get("accept", ""):
+        clips = get_clips(project_id)
+        return JSONResponse({"clip_id": clip_id, "selected": selected, "selected_count": sum(bool(clip["selected"]) for clip in clips), "clip_count": len(clips)})
     return RedirectResponse(f"/projects/{project_id}", status_code=303)
 
 
