@@ -37,7 +37,7 @@ Then open `http://127.0.0.1:8000`.
 
 The Create screen provides curated controls for platform, clip count, duration, captions, framing, source audio or optional AI voiceover, original proof-card overlays, focus, and manual ranges. The renderer supports vertical, square, and landscape source cuts with local FFmpeg. It validates each output before it appears in the project library.
 
-Quiet-gap trimming is shown as a non-destructive edit plan in this release so the original evidence timestamps stay exact. Voiceover is opt-in, uses the free `edge-tts` package when installed, and requires internet access; if it is unavailable, SourceCut renders with the original audio and records a visible warning.
+Quiet-gap trimming is shown as a non-destructive edit plan in this release so the original evidence timestamps stay exact. Voiceover is opt-in and runs locally through the quantized Kokoro ONNX model; it narrates the exact source evidence quote and never silently falls back to original audio. A failed local synthesis is reported on that clip instead.
 
 ## Optional GPT-5.6 analysis
 

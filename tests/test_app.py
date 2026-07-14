@@ -65,7 +65,7 @@ def test_export_contains_approved_claim_evidence() -> None:
 def test_create_form_has_production_controls() -> None:
     response = client.get("/upload")
     assert response.status_code == 200
-    for value in ("Up to 500 MB", "Shorts / Reels / TikTok", "Clip count", "Manual clips", "Plan quiet-gap trims", "AI voiceover", "Add proof cards"):
+    for value in ("Up to 500 MB", "Shorts / Reels / TikTok", "Clip count", "Manual clips", "Plan quiet-gap trims", "Kokoro voiceover", "Add proof cards"):
         assert value in response.text
     assert "Build the edit brief first." in response.text
     assert "data-source-file" in response.text
@@ -160,6 +160,25 @@ def test_clip_selection_returns_json_without_reloading_workspace(tmp_path: Path)
     )
     assert response.status_code == 200
     assert response.json() == {"clip_id": cursor.lastrowid, "selected": True, "selected_count": 1, "clip_count": 1}
+
+
+def test_voiceover_uses_kokoro_voices_and_never_falls_back_to_source_audio(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "voiceover-demo.mp4"
+    source.write_bytes(b"video")
+    settings = production.settings_from_form({"audio_mode": "voiceover", "voice": "en-US-AvaMultilingualNeural", "captions": "none"})
+    assert settings["voice"] == "af_sarah"
+    project_id = production.create_project("Voiceover demo", source, settings)
+    with production.closing(production.db()) as connection:
+        connection.execute(
+            "INSERT INTO clip_proposals (project_id, title, start, end, hook, caption, evidence_quote, claim_status, reason, selected) VALUES (?, ?, 0, 1, ?, ?, ?, 'supported', ?, 1)",
+            (project_id, "Moment", "Hook", "Caption", "Exact supported source quote.", "Direct source wording."),
+        )
+        connection.commit()
+    monkeypatch.setattr(production, "_synthesize_kokoro_voice", lambda *_: (_ for _ in ()).throw(RuntimeError("voice engine unavailable")))
+    ok, detail, warning = production._render_one(production.get_project(project_id), production.get_clips(project_id)[0], settings)
+    assert not ok
+    assert "Local Kokoro voiceover failed" in detail
+    assert warning == ""
 
 
 def test_failed_render_does_not_stop_other_selected_clips(monkeypatch, tmp_path: Path) -> None:

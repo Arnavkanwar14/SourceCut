@@ -6,7 +6,6 @@ import shutil
 import sqlite3
 import subprocess
 import threading
-import asyncio
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,8 +18,12 @@ from .transcription import transcribe_media
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "data" / "sourcecut.db"
 OUTPUT_DIR = ROOT / "data" / "outputs"
+KOKORO_DIR = ROOT / "data" / "models" / "kokoro"
+KOKORO_MODEL = KOKORO_DIR / "kokoro-v1.0.int8.onnx"
+KOKORO_VOICES = KOKORO_DIR / "voices-v1.0.bin"
 EXAMPLE_SOURCE = ROOT / "static" / "sourcecut-production-example.mp4"
 WORKER_LOCK = threading.Lock()
+KOKORO_ENGINE: object | None = None
 PLATFORMS = {
     "vertical": {"label": "Shorts / Reels / TikTok", "size": (1080, 1920), "limit": 60},
     "linkedin": {"label": "LinkedIn", "size": (1920, 1080), "limit": 60},
@@ -120,9 +123,18 @@ def settings_from_form(values: dict[str, str]) -> dict[str, object]:
         "framing": values.get("framing", "center") if values.get("framing") in {"center", "balanced"} else "center",
         "trim_silence": values.get("trim_silence") == "on",
         "audio_mode": "voiceover" if values.get("audio_mode") == "voiceover" else "source",
-        "voice": values.get("voice", "en-US-AndrewMultilingualNeural") if values.get("voice") in {"en-US-AndrewMultilingualNeural", "en-US-AvaMultilingualNeural"} else "en-US-AndrewMultilingualNeural",
+        "voice": _kokoro_voice(values.get("voice", "am_adam")),
         "proof_cards": values.get("proof_cards") == "on",
     }
+
+
+def _kokoro_voice(voice: object) -> str:
+    legacy_voices = {
+        "en-US-AndrewMultilingualNeural": "am_adam",
+        "en-US-AvaMultilingualNeural": "af_sarah",
+    }
+    value = legacy_voices.get(str(voice), str(voice))
+    return value if value in {"am_adam", "af_sarah"} else "am_adam"
 
 
 def create_project(name: str, source_path: Path, settings: dict[str, object]) -> int:
@@ -306,6 +318,7 @@ def refine_project_cuts(project_id: int) -> bool:
             old_output.unlink(missing_ok=True)
             old_output.with_suffix(".srt").unlink(missing_ok=True)
             old_output.with_suffix(".voice.mp3").unlink(missing_ok=True)
+            old_output.with_suffix(".voice.wav").unlink(missing_ok=True)
     _insert_proposals(project_id, segments, settings)
     if selected_count:
         with closing(db()) as connection:
@@ -410,6 +423,29 @@ def write_timed_subtitles(project_id: int, clip: sqlite3.Row, destination: Path)
     destination.write_text("\n".join(cues), encoding="utf-8")
 
 
+def _kokoro_engine():
+    global KOKORO_ENGINE
+    if KOKORO_ENGINE is None:
+        if not KOKORO_MODEL.is_file() or not KOKORO_VOICES.is_file():
+            raise RuntimeError("The local Kokoro model is missing. Install SourceCut's local voice model before rendering.")
+        from kokoro_onnx import Kokoro
+
+        KOKORO_ENGINE = Kokoro(str(KOKORO_MODEL), str(KOKORO_VOICES))
+    return KOKORO_ENGINE
+
+
+def _synthesize_kokoro_voice(clip: sqlite3.Row, voice_file: Path, voice: object) -> None:
+    import soundfile as soundfile
+
+    text = str(clip["evidence_quote"] or clip["caption"]).replace("\n", " ").strip()
+    if not text:
+        raise RuntimeError("This clip has no source text to narrate.")
+    samples, sample_rate = _kokoro_engine().create(text, voice=_kokoro_voice(voice), speed=1.0, lang="en-us")
+    soundfile.write(voice_file, samples, sample_rate)
+    if not voice_file.is_file() or voice_file.stat().st_size == 0:
+        raise RuntimeError("Kokoro did not create an audio file.")
+
+
 def _render_one(project: sqlite3.Row, clip: sqlite3.Row, settings: dict[str, object]) -> tuple[bool, str, str]:
     source = Path(project["source_path"])
     if source.suffix.lower() != ".mp4":
@@ -429,32 +465,31 @@ def _render_one(project: sqlite3.Row, clip: sqlite3.Row, settings: dict[str, obj
         filter_chain += ",drawbox=x=40:y=40:w=440:h=105:color=black@0.9:t=fill:enable='between(t,0.4,2.7)',drawtext=text='SOURCE EVIDENCE':fontcolor=white:fontsize=28:x=66:y=78:enable='between(t,0.4,2.7)'"
     extra_inputs: list[str] = []
     audio_map = "0:a:0?"
-    warning = ""
+    audio_filters: list[str] = []
     if settings.get("audio_mode") == "voiceover":
-        voice_file = destination.with_suffix(".voice.mp3")
+        voice_file = destination.with_suffix(".voice.wav")
         try:
-            from edge_tts import Communicate
-
-            asyncio.run(Communicate(str(clip["caption"]), str(settings["voice"])).save(str(voice_file)))
+            _synthesize_kokoro_voice(clip, voice_file, settings.get("voice"))
             extra_inputs = ["-i", str(voice_file)]
             audio_map = "1:a:0"
+            audio_filters = ["-af", f"apad=pad_dur={duration}"]
         except Exception as error:
-            warning = f"Voiceover was unavailable, so SourceCut kept the original audio: {str(error)[-240:]}"
+            return False, f"Local Kokoro voiceover failed: {str(error)[-500:]}", ""
     command = [
         ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", "-ss", str(clip["start"]),
         "-i", str(source), *extra_inputs, "-t", str(duration), "-map", "0:v:0?", "-map", audio_map,
         "-vf", filter_chain,
-        "-c:v", "libx264", "-c:a", "aac", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(destination),
+        "-c:v", "libx264", "-c:a", "aac", *audio_filters, "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(destination),
     ]
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode or not destination.exists() or destination.stat().st_size == 0:
         destination.unlink(missing_ok=True)
-        return False, result.stderr[-700:] or "FFmpeg could not render this clip.", warning
+        return False, result.stderr[-700:] or "FFmpeg could not render this clip.", ""
     probe = subprocess.run([ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-i", str(destination), "-f", "null", "-"], capture_output=True, text=True)
     if probe.returncode:
         destination.unlink(missing_ok=True)
-        return False, "The rendered file could not be validated.", warning
-    return True, str(destination), warning
+        return False, "The rendered file could not be validated.", ""
+    return True, str(destination), ""
 
 
 def run_render(project_id: int, job_id: int) -> None:
