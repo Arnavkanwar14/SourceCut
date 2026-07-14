@@ -34,7 +34,7 @@ def test_seeded_review_is_visible() -> None:
     assert "Customers save 40%." in response.text
     assert "Evidence: s1, s2" in response.text
     assert "/static/app.js" in response.text
-    assert "/static/sourcecut-evidence-object.png" in response.text
+    assert "/static/sourcecut-film-reel-object.png" in response.text
     assert "/static/sourcecut-seed-demo.mp4" in response.text
 
 
