@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app import main, production
@@ -64,7 +65,7 @@ def test_export_contains_approved_claim_evidence() -> None:
 def test_create_form_has_production_controls() -> None:
     response = client.get("/upload")
     assert response.status_code == 200
-    for value in ("Shorts / Reels / TikTok", "Clip count", "Manual clips", "Plan quiet-gap trims", "AI voiceover", "Add proof cards"):
+    for value in ("Up to 500 MB", "Shorts / Reels / TikTok", "Clip count", "Manual clips", "Plan quiet-gap trims", "AI voiceover", "Add proof cards"):
         assert value in response.text
 
 
@@ -139,3 +140,11 @@ def test_failed_render_does_not_stop_other_selected_clips(monkeypatch, tmp_path:
 def test_upload_rejects_unapproved_extension() -> None:
     response = client.post("/upload", files={"file": ("unsafe.exe", b"not-media", "application/octet-stream")})
     assert response.status_code == 400
+
+
+def test_upload_size_error_stays_in_create_screen(monkeypatch) -> None:
+    monkeypatch.setattr(main, "save_upload", lambda *_: (_ for _ in ()).throw(HTTPException(status_code=400, detail="Files must be 500 MB or smaller.")))
+    response = client.post("/upload", files={"file": ("large.mp4", b"source", "video/mp4")})
+    assert response.status_code == 400
+    assert "Files must be 500 MB or smaller." in response.text
+    assert "Build production project" in response.text

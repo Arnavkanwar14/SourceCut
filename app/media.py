@@ -10,7 +10,7 @@ from fastapi import HTTPException, UploadFile
 
 
 ALLOWED_SUFFIXES = {".mp3", ".mp4", ".wav"}
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 
 
 def ffmpeg_exe() -> str:
@@ -21,14 +21,20 @@ async def save_upload(upload: UploadFile, upload_dir: Path) -> Path:
     suffix = Path(upload.filename or "").suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(status_code=400, detail="Use an MP3, MP4, or WAV file.")
-    body = await upload.read(MAX_UPLOAD_BYTES + 1)
-    if len(body) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=400, detail="Files must be 25 MB or smaller.")
-    if not body:
-        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
     upload_dir.mkdir(parents=True, exist_ok=True)
     path = upload_dir / f"{uuid.uuid4().hex}{suffix}"
-    path.write_bytes(body)
+    size = 0
+    with path.open("wb") as destination:
+        while chunk := await upload.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_UPLOAD_BYTES:
+                destination.close()
+                path.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail="Files must be 500 MB or smaller.")
+            destination.write(chunk)
+    if not size:
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
     return path
 
 

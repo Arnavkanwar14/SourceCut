@@ -33,7 +33,7 @@ Then open `http://127.0.0.1:8000`.
 
 ## Production workflow
 
-`Create project` accepts local MP4, MP3, and WAV sources. MP4 is the full production path: SourceCut stores the recording locally, transcribes it on CPU, creates evidence-backed proposals, then renders only supported clips selected by the reviewer. MP3/WAV remain useful for transcript and production-brief review, but cannot produce a visual MP4 output.
+`Create project` accepts local MP4, MP3, and WAV sources up to 500 MB. MP4 is the full production path: SourceCut stores the recording locally, transcribes it on CPU, creates evidence-backed proposals, then renders only supported clips selected by the reviewer. MP3/WAV remain useful for transcript and production-brief review, but cannot produce a visual MP4 output.
 
 The Create screen provides curated controls for platform, clip count, duration, captions, framing, source audio or optional AI voiceover, original proof-card overlays, focus, and manual ranges. The renderer supports vertical, square, and landscape source cuts with local FFmpeg. It validates each output before it appears in the project library.
 

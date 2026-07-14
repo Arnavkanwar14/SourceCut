@@ -7,7 +7,7 @@ from html import escape
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .export import build_package, markdown
@@ -182,22 +182,26 @@ def home() -> str:
 
 
 def production_options() -> str:
-    return '''<section class="create-form" data-reveal><div class="create-copy"><p class="eyebrow">CREATE PROJECT</p><h2>Choose the edit before the machine starts.</h2><p class="note">SourceCut stores your source locally, transcribes it on CPU, proposes grounded moments, then renders only the clips you select.</p><p class="workflow-note">Upload → Transcribe → Review proposals → Render selected clips</p></div><form method="post" action="/upload" enctype="multipart/form-data" data-production-form><div class="file-drop"><label for="media-file">Source recording</label><input id="media-file" type="file" name="file" accept=".mp4,.mp3,.wav" required><span data-file-name>MP4 produces playable source and rendered clips. MP3/WAV remains a transcript review source.</span></div><div class="settings-grid"><label>Platform<select name="platform"><option value="vertical">Shorts / Reels / TikTok · 9:16</option><option value="linkedin">LinkedIn · 16:9</option><option value="square">Instagram feed · 1:1</option></select></label><label>Clip count<select name="clip_count"><option value="1">1 clip</option><option value="2">2 clips</option><option value="3" selected>3 clips</option><option value="4">4 clips</option><option value="5">5 clips</option></select></label><label>Target length<select name="duration"><option value="30">30 seconds</option><option value="45" selected>45 seconds</option><option value="60">60 seconds</option></select></label><label>Captions<select name="captions"><option value="bold" selected>Bold</option><option value="minimal">Minimal</option><option value="none">No captions</option></select></label><label>Framing<select name="framing"><option value="center" selected>Center crop</option><option value="balanced">Balanced frame</option></select></label><label>Audio<select name="audio_mode"><option value="source" selected>Original source audio</option><option value="voiceover">AI voiceover (free)</option></select></label><label>Voice<select name="voice"><option value="en-US-AndrewMultilingualNeural">Andrew · energetic</option><option value="en-US-AvaMultilingualNeural">Ava · clear</option></select></label><label class="toggle-field"><input type="checkbox" name="proof_cards"><span>Add proof cards</span></label><label class="toggle-field"><input type="checkbox" name="trim_silence"><span>Plan quiet-gap trims</span></label></div><label>Find moments about <input type="text" name="focus" maxlength="160" placeholder="For example: pricing, onboarding, customer proof"></label><label>Manual clips (optional) <input type="text" name="manual_clips" maxlength="240" placeholder="12:30-13:10, 45:02-45:50"></label><button class="go" type="submit">Build production project</button><p class="form-message" aria-live="polite"></p></form></section>'''
+    return '''<section class="create-form" data-reveal><div class="create-copy"><p class="eyebrow">CREATE PROJECT</p><h2>Choose the edit before the machine starts.</h2><p class="note">SourceCut stores your source locally, transcribes it on CPU, proposes grounded moments, then renders only the clips you select.</p><p class="workflow-note">Upload → Transcribe → Review proposals → Render selected clips</p></div><form method="post" action="/upload" enctype="multipart/form-data" data-production-form><div class="file-drop"><label for="media-file">Source recording</label><input id="media-file" type="file" name="file" accept=".mp4,.mp3,.wav" required><span data-file-name>Up to 500 MB. MP4 produces playable source and rendered clips. MP3/WAV remains a transcript review source.</span></div><div class="settings-grid"><label>Platform<select name="platform"><option value="vertical">Shorts / Reels / TikTok · 9:16</option><option value="linkedin">LinkedIn · 16:9</option><option value="square">Instagram feed · 1:1</option></select></label><label>Clip count<select name="clip_count"><option value="1">1 clip</option><option value="2">2 clips</option><option value="3" selected>3 clips</option><option value="4">4 clips</option><option value="5">5 clips</option></select></label><label>Target length<select name="duration"><option value="30">30 seconds</option><option value="45" selected>45 seconds</option><option value="60">60 seconds</option></select></label><label>Captions<select name="captions"><option value="bold" selected>Bold</option><option value="minimal">Minimal</option><option value="none">No captions</option></select></label><label>Framing<select name="framing"><option value="center" selected>Center crop</option><option value="balanced">Balanced frame</option></select></label><label>Audio<select name="audio_mode"><option value="source" selected>Original source audio</option><option value="voiceover">AI voiceover (free)</option></select></label><label>Voice<select name="voice"><option value="en-US-AndrewMultilingualNeural">Andrew · energetic</option><option value="en-US-AvaMultilingualNeural">Ava · clear</option></select></label><label class="toggle-field"><input type="checkbox" name="proof_cards"><span>Add proof cards</span></label><label class="toggle-field"><input type="checkbox" name="trim_silence"><span>Plan quiet-gap trims</span></label></div><label>Find moments about <input type="text" name="focus" maxlength="160" placeholder="For example: pricing, onboarding, customer proof"></label><label>Manual clips (optional) <input type="text" name="manual_clips" maxlength="240" placeholder="12:30-13:10, 45:02-45:50"></label><button class="go" type="submit">Build production project</button><p class="form-message" aria-live="polite"></p></form></section>'''
 
 
 @app.get("/upload", response_class=HTMLResponse)
-def upload_form() -> str:
+def upload_form(message: str = "") -> str:
     header = project_header("LOCAL PRODUCTION", "Turn a source recording into a clip desk.", "Choose a platform preset, then SourceCut will produce timestamped, evidence-linked clip proposals for your review.")
-    return document("Create project", "Local production", "/", "View projects", "CPU mode", header + production_options())
+    return document("Create project", "Local production", "/", "View projects", "CPU mode", header + production_options() + message)
 
 
 @app.post("/upload")
 async def upload_media(
     file: UploadFile = File(...), platform: str = Form("vertical"), clip_count: str = Form("3"), duration: str = Form("45"),
     captions: str = Form("bold"), framing: str = Form("center"), audio_mode: str = Form("source"), voice: str = Form("en-US-AndrewMultilingualNeural"), proof_cards: str | None = Form(None), trim_silence: str | None = Form(None), focus: str = Form(""), manual_clips: str = Form(""),
-) -> RedirectResponse:
+) -> Response:
     init_db()
-    path = await save_upload(file, ROOT / "data" / "uploads")
+    try:
+        path = await save_upload(file, ROOT / "data" / "uploads")
+    except HTTPException as error:
+        message = f'<p class="error" role="alert">{escape(str(error.detail))}</p>'
+        return HTMLResponse(upload_form(message), status_code=error.status_code)
     settings = settings_from_form({"platform": platform, "clip_count": clip_count, "duration": duration, "captions": captions, "framing": framing, "audio_mode": audio_mode, "voice": voice, "proof_cards": proof_cards or "", "trim_silence": trim_silence or "", "focus": focus, "manual_clips": manual_clips})
     project_id = create_project(file.filename or path.name, path, settings)
     start_analysis(project_id)
