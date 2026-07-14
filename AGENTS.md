@@ -8,3 +8,4 @@
 - 2026-07-14: Stage 0 uses FastAPI with SQLite because a single local app provides a real persisted approve/restore workflow without a frontend build system or API key.
 - 2026-07-14: Stage 1 uses `imageio-ffmpeg` and `faster-whisper` with `tiny.en` forced to CPU `int8`; the model is cached locally after its first download, and live uploads stay separate from the no-key seeded judge demo.
 - 2026-07-14: Stage 2 validates evidence locally before any model output can be trusted: source IDs, exact quote, and timestamps must match, while dropped pilot or "up to" qualifiers make numerical claims unsupported.
+- 2026-07-14: SourceCut UI uses the supplied brutalist-editorial reference as a functional work surface: warm gray canvas, flat white/black panels, mint/yellow micro-accents, large rounded cards, and no shadows or gradients.
