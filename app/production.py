@@ -10,7 +10,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .media import ffmpeg_exe
+from .media import ffmpeg_exe, inspect_media
 from .review import TranscriptSegment, local_candidates
 from .transcription import transcribe_media
 
@@ -39,6 +39,11 @@ EXAMPLE_SEGMENTS = [
 
 def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def format_duration(seconds: float) -> str:
+    minutes, remainder = divmod(max(0, int(round(seconds))), 60)
+    return f"{minutes}:{remainder:02d}"
 
 
 def db() -> sqlite3.Connection:
@@ -95,6 +100,22 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+            """
+        )
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(production_jobs)")}
+        for name, definition in (
+            ("progress", "INTEGER NOT NULL DEFAULT 0"),
+            ("started_at", "TEXT NOT NULL DEFAULT ''"),
+            ("finished_at", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if name not in columns:
+                connection.execute(f"ALTER TABLE production_jobs ADD COLUMN {name} {definition}")
+        connection.execute(
+            """
+            UPDATE production_jobs
+            SET progress = CASE WHEN status IN ('done', 'failed') THEN 100 ELSE progress END,
+                started_at = CASE WHEN started_at = '' AND status IN ('running', 'done', 'failed') THEN created_at ELSE started_at END,
+                finished_at = CASE WHEN finished_at = '' AND status IN ('done', 'failed') THEN updated_at ELSE finished_at END
             """
         )
         connection.commit()
@@ -205,20 +226,41 @@ def make_job(project_id: int, kind: str, stage: str) -> int:
     stamp = now()
     with closing(db()) as connection:
         cursor = connection.execute(
-            "INSERT INTO production_jobs (project_id, kind, status, stage, created_at, updated_at) VALUES (?, ?, 'queued', ?, ?, ?)",
+            "INSERT INTO production_jobs (project_id, kind, status, stage, progress, created_at, updated_at) VALUES (?, ?, 'queued', ?, 0, ?, ?)",
             (project_id, kind, stage, stamp, stamp),
         )
         connection.commit()
         return int(cursor.lastrowid)
 
 
-def update_job(job_id: int, status: str, stage: str, detail: str = "") -> None:
+def update_job(job_id: int, status: str, stage: str, detail: str = "", progress: int | None = None) -> None:
+    stamp = now()
+    fields = ["status = ?", "stage = ?", "detail = ?", "updated_at = ?"]
+    values: list[object] = [status, stage, detail, stamp]
+    if progress is not None:
+        fields.append("progress = ?")
+        values.append(max(0, min(100, int(progress))))
+    if status == "running":
+        fields.append("started_at = CASE WHEN started_at = '' THEN ? ELSE started_at END")
+        values.append(stamp)
+    if status in {"done", "failed"}:
+        fields.append("finished_at = ?")
+        values.append(stamp)
+    values.append(job_id)
     with closing(db()) as connection:
         connection.execute(
-            "UPDATE production_jobs SET status = ?, stage = ?, detail = ?, updated_at = ? WHERE id = ?",
-            (status, stage, detail, now(), job_id),
+            f"UPDATE production_jobs SET {', '.join(fields)} WHERE id = ?",
+            values,
         )
         connection.commit()
+
+
+def job_queue_position(job_id: int) -> int:
+    with closing(db()) as connection:
+        row = connection.execute(
+            "SELECT COUNT(*) AS position FROM production_jobs WHERE status = 'queued' AND id <= ?", (job_id,)
+        ).fetchone()
+    return int(row["position"] or 0)
 
 
 def parse_manual_ranges(value: str) -> list[tuple[float, float]]:
@@ -333,14 +375,15 @@ def refine_project_cuts(project_id: int) -> bool:
 def run_analysis(project_id: int, job_id: int) -> None:
     try:
         with WORKER_LOCK:
-            update_job(job_id, "running", "Inspect media", "Preparing the local source.")
+            update_job(job_id, "running", "Inspect media", "Preparing the local source.", 5)
             project = get_project(project_id)
             if not project:
                 return
+            duration = inspect_media(Path(project["source_path"]))
             with closing(db()) as connection:
                 connection.execute("UPDATE projects SET status = 'processing', error = '' WHERE id = ?", (project_id,))
                 connection.commit()
-            update_job(job_id, "running", "Transcribe", "Creating timestamped source segments on CPU.")
+            update_job(job_id, "running", "Transcribe", f"Verified a {format_duration(duration)} source. Creating timestamped segments on CPU.", 20)
             raw_segments = transcribe_media(Path(project["source_path"]))
             with closing(db()) as connection:
                 connection.execute("DELETE FROM project_segments WHERE project_id = ?", (project_id,))
@@ -349,7 +392,7 @@ def run_analysis(project_id: int, job_id: int) -> None:
                     [(project_id, segment["start"], segment["end"], segment["text"]) for segment in raw_segments],
                 )
                 connection.commit()
-            update_job(job_id, "running", "Find moments", "Building source-grounded clip proposals.")
+            update_job(job_id, "running", "Find moments", "Building source-grounded clip proposals.", 75)
             segments = [
                 TranscriptSegment(id=f"segment-{row['id']}", start=row["start"], end=row["end"], text=row["text"])
                 for row in get_segments(project_id)
@@ -358,12 +401,12 @@ def run_analysis(project_id: int, job_id: int) -> None:
             with closing(db()) as connection:
                 connection.execute("UPDATE projects SET status = 'ready' WHERE id = ?", (project_id,))
                 connection.commit()
-            update_job(job_id, "done", "Review proposals", "Select the clips you want SourceCut to render.")
+            update_job(job_id, "done", "Review proposals", "Select the clips you want SourceCut to render.", 100)
     except Exception as error:
         with closing(db()) as connection:
             connection.execute("UPDATE projects SET status = 'failed', error = ? WHERE id = ?", (str(error)[-700:], project_id))
             connection.commit()
-        update_job(job_id, "failed", "Analysis failed", str(error)[-700:])
+        update_job(job_id, "failed", "Analysis failed", str(error)[-700:], 100)
 
 
 def start_analysis(project_id: int) -> int:
@@ -507,7 +550,8 @@ def run_render(project_id: int, job_id: int) -> None:
                 connection.execute("UPDATE projects SET status = 'rendering' WHERE id = ?", (project_id,))
                 connection.commit()
             for index, clip in enumerate(clips, 1):
-                update_job(job_id, "running", "Render selected clips", f"Rendering {index} of {len(clips)}.")
+                progress = 10 + int((index - 1) / len(clips) * 80)
+                update_job(job_id, "running", "Render selected clips", f"Rendering {index} of {len(clips)}.", progress)
                 with closing(db()) as connection:
                     connection.execute("UPDATE clip_proposals SET render_status = 'rendering', error = '' WHERE id = ?", (clip["id"],))
                     connection.commit()
@@ -521,9 +565,9 @@ def run_render(project_id: int, job_id: int) -> None:
             with closing(db()) as connection:
                 connection.execute("UPDATE projects SET status = 'ready' WHERE id = ?", (project_id,))
                 connection.commit()
-            update_job(job_id, "done", "Outputs ready", "Finished clips are ready in this project.")
+            update_job(job_id, "done", "Outputs ready", "Finished clips are ready in this project.", 100)
     except Exception as error:
-        update_job(job_id, "failed", "Render failed", str(error)[-700:])
+        update_job(job_id, "failed", "Render failed", str(error)[-700:], 100)
 
 
 def start_render(project_id: int) -> int:

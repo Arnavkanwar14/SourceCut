@@ -58,19 +58,40 @@
     });
   });
 
-  document.querySelectorAll("[data-action-form]").forEach((form) => {
-    form.addEventListener("submit", () => {
-      if (form.matches("[data-selection-form]")) return;
+  const bindActionForms = (root = document) => root.querySelectorAll("[data-action-form]").forEach((form) => {
+    if (form.matches("[data-selection-form]")) return;
+    if (form.dataset.bound === "true") return;
+    form.dataset.bound = "true";
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
       const button = form.querySelector("button");
       if (!button) return;
       form.classList.add("form-pending");
       button.disabled = true;
-      button.textContent = button.classList.contains("secondary") ? "Updating..." : "Applying...";
+      const originalLabel = button.textContent;
+      button.textContent = button.classList.contains("secondary") ? "Updating..." : "Starting render...";
+      try {
+        const response = await fetch(form.action, {
+          method: "POST",
+          body: new FormData(form),
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) throw new Error("Action could not be completed.");
+        const data = await response.json();
+        window.dispatchEvent(new CustomEvent(data.action === "render_started" ? "sourcecut:job-started" : "sourcecut:workspace-refresh"));
+      } catch (_) {
+        button.disabled = false;
+        button.textContent = originalLabel;
+      } finally {
+        form.classList.remove("form-pending");
+      }
     });
   });
 
   const renderLabel = (count) => `Render ${count} selected clip${count === 1 ? "" : "s"}`;
-  document.querySelectorAll("[data-selection-form]").forEach((form) => {
+  const bindSelectionForms = (root = document) => root.querySelectorAll("[data-selection-form]").forEach((form) => {
+    if (form.dataset.bound === "true") return;
+    form.dataset.bound = "true";
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const button = form.querySelector("button");
@@ -121,6 +142,8 @@
       }
     });
   });
+  bindActionForms();
+  bindSelectionForms();
 
   document.querySelectorAll("[data-delete-form]").forEach((form) => {
     form.addEventListener("submit", (event) => {
@@ -146,6 +169,10 @@
     };
     audioMode?.addEventListener("change", setVoiceState);
     setVoiceState();
+    const formatDuration = (seconds) => {
+      const whole = Math.max(0, Math.round(seconds));
+      return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+    };
     file?.addEventListener("change", () => {
       const picked = file.files?.[0];
       const extension = picked?.name.split(".").pop()?.toLowerCase() || "";
@@ -155,7 +182,24 @@
       file.setCustomValidity(error);
       fileDrop?.classList.toggle("has-file", Boolean(picked && !error));
       fileDrop?.classList.toggle("invalid", Boolean(error));
-      if (fileName) fileName.textContent = error || (picked ? `${picked.name} - ${(picked.size / 1024 / 1024).toFixed(1)} MB ready for analysis` : "MP4, MP3, or WAV up to 500 MB.");
+      if (fileName) fileName.textContent = error || (picked ? `Checking ${picked.name} - ${(picked.size / 1024 / 1024).toFixed(1)} MB locally...` : "MP4, MP3, or WAV up to 500 MB.");
+      if (!picked || error) return;
+      const probe = document.createElement(extension === "mp4" ? "video" : "audio");
+      const objectUrl = URL.createObjectURL(picked);
+      probe.preload = "metadata";
+      probe.onloadedmetadata = () => {
+        const seconds = Number(probe.duration);
+        const estimate = Number.isFinite(seconds) ? Math.max(1, Math.ceil(seconds / 60 * 0.6)) : 1;
+        if (fileName) fileName.textContent = Number.isFinite(seconds)
+          ? `${picked.name} - ${(picked.size / 1024 / 1024).toFixed(1)} MB - ${formatDuration(seconds)} source. Local analysis is usually about ${estimate} minute${estimate === 1 ? "" : "s"}.`
+          : `${picked.name} - ${(picked.size / 1024 / 1024).toFixed(1)} MB ready for server inspection.`;
+        URL.revokeObjectURL(objectUrl);
+      };
+      probe.onerror = () => {
+        if (fileName) fileName.textContent = `${picked.name} - ${Math.round(picked.size / 1024 / 1024)} MB. SourceCut will verify it after upload.`;
+        URL.revokeObjectURL(objectUrl);
+      };
+      probe.src = objectUrl;
     });
     productionForm.addEventListener("submit", () => {
       const button = productionForm.querySelector("button");
@@ -170,8 +214,30 @@
   const jobPanel = document.querySelector("[data-job-status]");
   if (jobPanel) {
     const endpoint = jobPanel.dataset.jobStatus;
+    const fragmentsEndpoint = jobPanel.dataset.workspaceFragments;
     const detail = jobPanel.querySelector("[data-job-detail]");
     const state = jobPanel.querySelector("[data-job-state]");
+    const stage = jobPanel.querySelector("[data-job-stage]");
+    const progress = jobPanel.querySelector("[data-job-progress]");
+    const timing = jobPanel.querySelector("[data-job-timing]");
+    const refreshWorkspace = async () => {
+      if (!fragmentsEndpoint) return;
+      const response = await fetch(fragmentsEndpoint, { headers: { Accept: "application/json" } });
+      if (!response.ok) return;
+      const data = await response.json();
+      const actions = document.querySelector("[data-render-actions]");
+      const summary = document.querySelector("[data-selection-summary]");
+      const proposals = document.querySelector("[data-clip-proposals]");
+      const outputs = document.querySelector("[data-output-grid]");
+      if (actions) actions.innerHTML = data.render_actions;
+      if (summary) summary.innerHTML = data.selection_summary;
+      if (proposals) proposals.innerHTML = data.clip_cards;
+      if (outputs) outputs.innerHTML = data.outputs;
+      const headerProgress = document.querySelector(".project-hero .progress strong");
+      if (headerProgress) headerProgress.textContent = `${data.selected}/${data.clip_count}`;
+      bindActionForms(document);
+      bindSelectionForms(document);
+    };
     const poll = async () => {
       try {
         const response = await fetch(endpoint, { headers: { Accept: "application/json" } });
@@ -179,8 +245,11 @@
         const data = await response.json();
         if (data.job && detail) detail.textContent = data.job.detail || data.job.stage;
         if (data.job && state) state.textContent = data.job.status;
+        if (data.job && stage) stage.textContent = data.job.stage;
+        if (data.job && progress) progress.style.width = `${data.job.progress || 0}%`;
+        if (data.job && timing) timing.textContent = data.job.started_at || "Waiting to start";
         if (data.job?.status === "done" || data.job?.status === "failed") {
-          window.location.reload();
+          await refreshWorkspace();
           return;
         }
         window.setTimeout(poll, 1500);
@@ -188,6 +257,14 @@
         window.setTimeout(poll, 3000);
       }
     };
+    window.addEventListener("sourcecut:workspace-refresh", refreshWorkspace);
+    window.addEventListener("sourcecut:job-started", () => {
+      if (state) state.textContent = "queued";
+      if (stage) stage.textContent = "Queued";
+      if (detail) detail.textContent = "Waiting for the local render worker.";
+      if (progress) progress.style.width = "0%";
+      window.setTimeout(poll, 150);
+    });
     window.setTimeout(poll, 900);
   }
 

@@ -105,6 +105,9 @@ time { color: var(--slate); font: 400 12px/1.4 var(--mono); }
 .upload-form input:hover { background: var(--mint); }
 .form-pending button { background: var(--slate); color: var(--paper); cursor: progress; }
 .form-pending button::after { width: 10px; height: 10px; margin-left: 10px; border: 2px solid var(--paper); border-top-color: transparent; border-radius: 50%; animation: spin 600ms linear infinite; content: ""; }
+.job-meter { width: 100%; height: 8px; margin-top: 16px; overflow: hidden; border-radius: 8px; background: var(--ash); }
+.job-meter span { display: block; width: 0; height: 100%; background: var(--mint); transition: width 240ms ease; }
+.job-timing { margin: 10px 0 0; color: var(--ash); font: 400 11px/1.2 var(--mono); }
 .transcript-result, .error { margin-top: 24px; padding: 32px; border-radius: 32px; background: var(--paper); }
 .error { background: var(--yellow); color: var(--carbon); font-weight: 700; }
 .review-link { margin-top: 18px; }

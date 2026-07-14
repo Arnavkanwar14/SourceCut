@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import uuid
@@ -15,6 +16,16 @@ MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 
 def ffmpeg_exe() -> str:
     return imageio_ffmpeg.get_ffmpeg_exe()
+
+
+def inspect_media(source: Path) -> float:
+    """Return the source duration after asking the bundled FFmpeg to read it."""
+    result = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(source)], capture_output=True, text=True)
+    match = re.search(r"Duration:\s*(\d+):(\d{2}):(\d{2}(?:\.\d+)?)", result.stderr)
+    if not match:
+        raise RuntimeError("SourceCut could not inspect this media file. Choose a playable MP4, MP3, or WAV source.")
+    hours, minutes, seconds = match.groups()
+    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
 
 
 async def save_upload(upload: UploadFile, upload_dir: Path) -> Path:

@@ -21,6 +21,7 @@ from .production import (
     get_project,
     get_segments,
     init_db as init_production_db,
+    job_queue_position,
     latest_job,
     list_projects,
     output_path,
@@ -34,6 +35,7 @@ from .review import Evidence, TranscriptSegment, review_claim
 
 
 ROOT = Path(__file__).resolve().parent.parent
+ASSET_VERSION = int(max((ROOT / "static" / name).stat().st_mtime for name in ("style.css", "app.js")))
 DB_PATH = ROOT / "data" / "sourcecut.db"
 TRANSCRIPT = [
     ("s1", "00:18", "In a 12-customer pilot, teams reduced handoff time by up to 40 percent."),
@@ -111,7 +113,7 @@ def review_seeded_rewrite(claim: sqlite3.Row, rewrite: str):
 
 
 def document(title: str, context: str, action_href: str, action_label: str, status: str, content: str) -> str:
-    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)} | SourceCut</title><link rel="stylesheet" href="/static/style.css"><script defer src="/static/app.js"></script></head><body>
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)} | SourceCut</title><link rel="stylesheet" href="/static/style.css?v={ASSET_VERSION}"><script defer src="/static/app.js?v={ASSET_VERSION}"></script></head><body>
     <header class="topbar" data-reveal><a class="brand" href="/" aria-label="SourceCut dashboard">SOURCECUT</a><span class="product-context">{escape(context)}</span><nav aria-label="Primary navigation"><a href="/">Projects</a><a href="/upload">Create</a><a href="/#outputs">Outputs</a></nav><a class="nav-action" href="{action_href}">{escape(action_label)}</a><b class="mode-chip">{escape(status)}</b></header>
     <main>{content}</main><footer data-reveal>SourceCut evaluates support in the shown source transcript. It does not certify real-world, legal, or compliance truth.</footer></body></html>'''
 
@@ -243,10 +245,12 @@ def workspace(project: sqlite3.Row) -> str:
     outputs = "".join(output_card(project["id"], clip) for clip in clips if clip["render_status"] == "ready") or '<p class="empty-state">Approved rendered clips will appear here.</p>'
     job_detail = escape(job["detail"] if job else "Waiting for the next production action.")
     header = project_header("PROJECT WORKSPACE", project["name"], f'''<span class="project-meta">{escape(PLATFORMS[settings["platform"]]["label"])} &middot; {settings["duration"]} seconds &middot; {settings["clip_count"]} requested clips</span>''', f"{selected}/{len(clips)}", "clips selected")
-    progress = f'''<section class="job-panel" data-job-status="/projects/{project["id"]}/status" data-reveal><div><p class="eyebrow">LOCAL JOB</p><h2>{escape(job["stage"] if job else "Ready")}</h2><p data-job-detail>{job_detail}</p></div><span class="status" data-job-state>{escape(job["status"] if job else status)}</span></section>''' if processing else ""
+    job_progress = int(job["progress"] if job else 0)
+    job_timing = f'''<span data-job-timing>{escape(job["started_at"] or "Waiting to start")}</span>''' if job else ""
+    progress = f'''<section class="job-panel" data-job-status="/projects/{project["id"]}/status" data-workspace-fragments="/projects/{project["id"]}/workspace-fragments" data-reveal><div><p class="eyebrow">LOCAL JOB</p><h2 data-job-stage>{escape(job["stage"] if job else "Ready")}</h2><p data-job-detail>{job_detail}</p><div class="job-meter" aria-label="Job progress"><span data-job-progress style="width: {job_progress}%"></span></div><p class="job-timing">{job_timing}</p></div><span class="status" data-job-state>{escape(job["status"] if job else status)}</span></section>'''
     render_action = f'''<div class="proposal-actions"><form method="post" action="/projects/{project["id"]}/refine-cuts" data-action-form><button class="secondary" {'disabled' if processing else ''}>Rebuild clip picks</button></form><form method="post" action="/projects/{project["id"]}/render" data-action-form><button data-render-button {'disabled' if not selected or processing else ''}>Render {selected} selected clip{'s' if selected != 1 else ''}</button></form></div>'''
     selection_summary = f'''<div class="selection-summary" aria-live="polite"><span><strong data-selected-count>{selected}</strong> selected for render</span><span><strong data-ready-count>{ready}</strong> finished outputs</span></div>'''
-    desk = f'''{progress}<section class="production-workspace" data-reveal><aside class="source-column"><div class="panel-heading"><p class="eyebrow">SOURCE PREVIEW</p><span>Click a proposal to seek</span></div>{player}<p class="source-note">Full-frame source stays linked to each proposal. Use the timestamped transcript to check context before selecting.</p></aside><section id="clip-review" class="proposal-column"><div class="section-heading"><div><p class="eyebrow">CLIP REVIEW</p><h2>Review before render.</h2></div>{render_action}</div>{selection_summary}<div class="clip-proposals">{clip_cards}</div></section><aside class="transcript-column"><div class="panel-heading"><p class="eyebrow">SOURCE TRANSCRIPT</p><span>Click to seek</span></div><ol>{transcript}</ol></aside></section><section id="outputs" class="outputs-library" data-reveal><div class="section-heading"><div><p class="eyebrow">OUTPUTS</p><h2>Rendered production files</h2></div><a href="/projects/{project["id"]}/export.json">Export package</a></div><div class="output-grid">{outputs}</div></section>'''
+    desk = f'''{progress}<section class="production-workspace" data-reveal><aside class="source-column"><div class="panel-heading"><p class="eyebrow">SOURCE PREVIEW</p><span>Click a proposal to seek</span></div>{player}<p class="source-note">Full-frame source stays linked to each proposal. Use the timestamped transcript to check context before selecting.</p></aside><section id="clip-review" class="proposal-column"><div class="section-heading"><div><p class="eyebrow">CLIP REVIEW</p><h2>Review before render.</h2></div><div data-render-actions>{render_action}</div></div><div data-selection-summary>{selection_summary}</div><div class="clip-proposals" data-clip-proposals>{clip_cards}</div></section><aside class="transcript-column"><div class="panel-heading"><p class="eyebrow">SOURCE TRANSCRIPT</p><span>Click to seek</span></div><ol>{transcript}</ol></aside></section><section id="outputs" class="outputs-library" data-reveal><div class="section-heading"><div><p class="eyebrow">OUTPUTS</p><h2>Rendered production files</h2></div><a href="/projects/{project["id"]}/export.json">Export package</a></div><div class="output-grid" data-output-grid>{outputs}</div></section>'''
     return document(project["name"], "Production workspace", "/upload", "New project", status, header + desk)
 
 
@@ -289,7 +293,26 @@ def project_status(project_id: int) -> JSONResponse:
         raise HTTPException(status_code=404, detail="Project not found")
     job = latest_job(project_id)
     clips = get_clips(project_id)
-    return JSONResponse({"project_status": project["status"], "job": dict(job) if job else None, "selected": sum(bool(clip["selected"]) for clip in clips), "outputs": sum(clip["render_status"] == "ready" for clip in clips)})
+    job_data = dict(job) if job else None
+    if job_data and job_data["status"] == "queued":
+        job_data["queue_position"] = job_queue_position(int(job_data["id"]))
+    return JSONResponse({"project_status": project["status"], "job": job_data, "selected": sum(bool(clip["selected"]) for clip in clips), "outputs": sum(clip["render_status"] == "ready" for clip in clips)})
+
+
+@app.get("/projects/{project_id}/workspace-fragments")
+def project_workspace_fragments(project_id: int) -> JSONResponse:
+    project = get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    clips = get_clips(project_id)
+    selected = sum(bool(clip["selected"]) for clip in clips)
+    ready = sum(clip["render_status"] == "ready" for clip in clips)
+    processing = project["status"] in {"queued", "processing", "rendering"}
+    render_action = f'''<div class="proposal-actions"><form method="post" action="/projects/{project_id}/refine-cuts" data-action-form><button class="secondary" {'disabled' if processing else ''}>Rebuild clip picks</button></form><form method="post" action="/projects/{project_id}/render" data-action-form><button data-render-button {'disabled' if not selected or processing else ''}>Render {selected} selected clip{'s' if selected != 1 else ''}</button></form></div>'''
+    selection_summary = f'''<div class="selection-summary" aria-live="polite"><span><strong data-selected-count>{selected}</strong> selected for render</span><span><strong data-ready-count>{ready}</strong> finished outputs</span></div>'''
+    clip_cards = "".join(clip_card(project_id, clip) for clip in clips) or '<p class="empty-state">Clip proposals will appear after transcription finishes.</p>'
+    outputs = "".join(output_card(project_id, clip) for clip in clips if clip["render_status"] == "ready") or '<p class="empty-state">Approved rendered clips will appear here.</p>'
+    return JSONResponse({"render_actions": render_action, "selection_summary": selection_summary, "clip_cards": clip_cards, "outputs": outputs, "selected": selected, "clip_count": len(clips), "ready": ready})
 
 
 @app.post("/projects/{project_id}/clips/{clip_id}/select")
@@ -314,20 +337,25 @@ def remove_project(project_id: int) -> RedirectResponse:
 
 
 @app.post("/projects/{project_id}/refine-cuts")
-def refine_cuts(project_id: int) -> RedirectResponse:
+def refine_cuts(project_id: int, request: Request) -> Response:
     if not refine_project_cuts(project_id):
         raise HTTPException(status_code=404, detail="Project not found")
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"action": "refined"})
     return RedirectResponse(f"/projects/{project_id}", status_code=303)
 
 
 @app.post("/projects/{project_id}/render")
-def render_project(project_id: int) -> RedirectResponse:
+def render_project(project_id: int, request: Request) -> Response:
     project = get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     if not any(clip["selected"] for clip in get_clips(project_id)):
         raise HTTPException(status_code=422, detail="Select a source-grounded clip before rendering.")
-    start_render(project_id)
+    job_id = start_render(project_id)
+    if "application/json" in request.headers.get("accept", ""):
+        job = latest_job(project_id)
+        return JSONResponse({"action": "render_started", "job": dict(job) if job and job["id"] == job_id else None}, status_code=202)
     return RedirectResponse(f"/projects/{project_id}", status_code=303)
 
 
@@ -336,7 +364,7 @@ def project_output(project_id: int, clip_id: int) -> FileResponse:
     path = output_path(project_id, clip_id)
     if not path:
         raise HTTPException(status_code=404, detail="Rendered output not found")
-    return FileResponse(path, media_type="video/mp4", filename=path.name)
+    return FileResponse(path, media_type="video/mp4", filename=path.name, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/projects/{project_id}/export.json")

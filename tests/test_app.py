@@ -113,6 +113,7 @@ def test_analysis_creates_evidence_backed_proposals(monkeypatch, tmp_path: Path)
     source.write_bytes(b"video")
     settings = production.settings_from_form({})
     project_id = production.create_project("Original demo", source, settings)
+    monkeypatch.setattr(production, "inspect_media", lambda _: 22.0)
     monkeypatch.setattr(production, "transcribe_media", lambda _: [
         {"start": 18.0, "end": 24.0, "text": "In a pilot, teams reduced handoff time by up to 40 percent."},
         {"start": 30.0, "end": 35.0, "text": "Teams used a review queue before publishing."},
@@ -127,12 +128,19 @@ def test_analysis_creates_evidence_backed_proposals(monkeypatch, tmp_path: Path)
     assert blocked.status_code == 422
     status = client.get(f"/projects/{project_id}/status")
     assert status.json()["job"]["status"] == "done"
+    assert status.json()["job"]["progress"] == 100
+    assert status.json()["job"]["started_at"]
+    assert status.json()["job"]["finished_at"]
+    fragments = client.get(f"/projects/{project_id}/workspace-fragments")
+    assert fragments.status_code == 200
+    assert "data-selection-form" in fragments.json()["clip_cards"]
 
 
 def test_project_export_only_includes_selected_clips(monkeypatch, tmp_path: Path) -> None:
     source = tmp_path / "original.mp4"
     source.write_bytes(b"video")
     project_id = production.create_project("Export demo", source, production.settings_from_form({}))
+    monkeypatch.setattr(production, "inspect_media", lambda _: 8.0)
     monkeypatch.setattr(production, "transcribe_media", lambda _: [{"start": 2.0, "end": 8.0, "text": "Teams use a review queue before publishing."}])
     job_id = production.make_job(project_id, "analysis", "Queued")
     production.run_analysis(project_id, job_id)
@@ -160,6 +168,23 @@ def test_clip_selection_returns_json_without_reloading_workspace(tmp_path: Path)
     )
     assert response.status_code == 200
     assert response.json() == {"clip_id": cursor.lastrowid, "selected": True, "selected_count": 1, "clip_count": 1}
+
+
+def test_render_starts_without_reloading_workspace(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "render-demo.mp4"
+    source.write_bytes(b"video")
+    project_id = production.create_project("Render demo", source, production.settings_from_form({}))
+    with production.closing(production.db()) as connection:
+        connection.execute(
+            "INSERT INTO clip_proposals (project_id, title, start, end, hook, caption, evidence_quote, claim_status, reason, selected) VALUES (?, ?, 0, 1, ?, ?, ?, 'supported', ?, 1)",
+            (project_id, "Moment", "Hook", "Caption", "Exact source quote.", "Direct source wording."),
+        )
+        connection.commit()
+    monkeypatch.setattr(main, "start_render", lambda project_id: production.make_job(project_id, "render", "Queued"))
+    response = client.post(f"/projects/{project_id}/render", headers={"Accept": "application/json"})
+    assert response.status_code == 202
+    assert response.json()["action"] == "render_started"
+    assert response.json()["job"]["status"] == "queued"
 
 
 def test_voiceover_uses_kokoro_voices_and_never_falls_back_to_source_audio(monkeypatch, tmp_path: Path) -> None:
