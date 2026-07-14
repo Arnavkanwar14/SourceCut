@@ -67,6 +67,9 @@ def test_create_form_has_production_controls() -> None:
     assert response.status_code == 200
     for value in ("Up to 500 MB", "Shorts / Reels / TikTok", "Clip count", "Manual clips", "Plan quiet-gap trims", "AI voiceover", "Add proof cards"):
         assert value in response.text
+    assert "Build the edit brief first." in response.text
+    assert "data-source-file" in response.text
+    assert "data-audio-mode" in response.text
 
 
 def test_example_project_opens_with_player_and_proposals() -> None:
@@ -76,6 +79,8 @@ def test_example_project_opens_with_player_and_proposals() -> None:
     assert "sourcecut-production-example.mp4" not in response.text
     assert "Review before render." in response.text
     assert "Source evidence" in response.text
+    assert "selected for render" in response.text
+    assert "Rebuild clip picks" in response.text
 
 
 def test_project_can_be_deleted_from_library(tmp_path: Path) -> None:

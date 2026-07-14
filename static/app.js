@@ -39,7 +39,10 @@
       window.setTimeout(() => target.classList.remove("evidence-focus"), 1200);
       const player = document.querySelector("[data-source-player]");
       const time = Number(link.dataset.seek);
-      if (player && Number.isFinite(time)) player.currentTime = time;
+      if (player && Number.isFinite(time)) {
+        player.currentTime = time;
+        player.play().catch(() => {});
+      }
       history.replaceState(null, "", id);
     });
   });
@@ -75,12 +78,30 @@
 
   const productionForm = document.querySelector("[data-production-form]");
   if (productionForm) {
-    const file = productionForm.querySelector("input[type=file]");
+    const file = productionForm.querySelector("[data-source-file]");
     const fileName = productionForm.querySelector("[data-file-name]");
     const message = productionForm.querySelector(".form-message");
+    const fileDrop = productionForm.querySelector("[data-file-drop]");
+    const audioMode = productionForm.querySelector("[data-audio-mode]");
+    const voiceField = productionForm.querySelector("[data-voice-field]");
+    const voice = voiceField?.querySelector("select");
+    const setVoiceState = () => {
+      const useVoiceover = audioMode?.value === "voiceover";
+      if (voice) voice.disabled = !useVoiceover;
+      voiceField?.classList.toggle("is-muted", !useVoiceover);
+    };
+    audioMode?.addEventListener("change", setVoiceState);
+    setVoiceState();
     file?.addEventListener("change", () => {
       const picked = file.files?.[0];
-      if (picked && fileName) fileName.textContent = `${picked.name} · ${(picked.size / 1024 / 1024).toFixed(1)} MB selected`;
+      const extension = picked?.name.split(".").pop()?.toLowerCase() || "";
+      const supported = ["mp4", "mp3", "wav"].includes(extension);
+      const tooLarge = Boolean(picked && picked.size > 500 * 1024 * 1024);
+      const error = tooLarge ? "Choose a file no larger than 500 MB." : (!supported ? "Choose an MP4, MP3, or WAV file." : "");
+      file.setCustomValidity(error);
+      fileDrop?.classList.toggle("has-file", Boolean(picked && !error));
+      fileDrop?.classList.toggle("invalid", Boolean(error));
+      if (fileName) fileName.textContent = error || (picked ? `${picked.name} - ${(picked.size / 1024 / 1024).toFixed(1)} MB ready for analysis` : "MP4, MP3, or WAV up to 500 MB.");
     });
     productionForm.addEventListener("submit", () => {
       const button = productionForm.querySelector("button");
