@@ -65,6 +65,14 @@
     });
   });
 
+  document.querySelectorAll("[data-delete-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      if (!window.confirm("Delete this project and its rendered outputs? This cannot be undone.")) {
+        event.preventDefault();
+      }
+    });
+  });
+
   const productionForm = document.querySelector("[data-production-form]");
   if (productionForm) {
     const file = productionForm.querySelector("input[type=file]");

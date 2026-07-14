@@ -16,6 +16,7 @@ from .production import (
     PLATFORMS,
     create_example_project,
     create_project,
+    delete_project,
     get_clips,
     get_project,
     get_segments,
@@ -173,7 +174,7 @@ def home() -> str:
     init_db()
     projects = list_projects()
     project_cards = "".join(
-        f'''<article class="project-card" data-reveal><div class="project-card-top"><span class="status">{escape(row["status"])}</span><span>{int(row["output_count"] or 0)} outputs</span></div><h2>{escape(row["name"])}</h2><p>{escape(PLATFORMS.get(json.loads(row["settings_json"])["platform"], PLATFORMS["vertical"])["label"])} · {int(row["clip_count"])} proposals</p><a class="review-link" href="/projects/{row["id"]}">Open production desk</a></article>'''
+        f'''<article class="project-card" data-reveal><div class="project-card-top"><span class="status">{escape(row["status"])}</span><span>{int(row["output_count"] or 0)} outputs</span></div><h2>{escape(row["name"])}</h2><p>{escape(PLATFORMS.get(json.loads(row["settings_json"])["platform"], PLATFORMS["vertical"])["label"])} · {int(row["clip_count"])} proposals</p><div class="project-card-actions"><a class="review-link" href="/projects/{row["id"]}">Open production desk</a><form method="post" action="/projects/{row["id"]}/delete" data-delete-form><button class="delete-button" aria-label="Delete {escape(row["name"])}">Delete</button></form></div></article>'''
         for row in projects
     ) or '<p class="empty-state">No uploaded projects yet. Start with a local recording or open the seeded review below.</p>'
     seed = '''<article class="project-card seed-card" data-reveal><div class="project-card-top"><span class="status">seeded demo</span><span>no key needed</span></div><h2>ApexFlow product webinar</h2><p>See an unsupported marketing claim become a timestamp-backed rewrite.</p><a class="review-link" href="/review">Open evidence review</a></article>'''
@@ -292,6 +293,17 @@ def select_clip(project_id: int, clip_id: int, selected: bool = Form(...)) -> Re
     if not set_selected(project_id, clip_id, selected):
         raise HTTPException(status_code=422, detail="Only source-supported clips can be selected for rendering.")
     return RedirectResponse(f"/projects/{project_id}", status_code=303)
+
+
+@app.post("/projects/{project_id}/delete")
+def remove_project(project_id: int) -> RedirectResponse:
+    try:
+        removed = delete_project(project_id)
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    if not removed:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return RedirectResponse("/", status_code=303)
 
 
 @app.post("/projects/{project_id}/render")

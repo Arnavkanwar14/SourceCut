@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -424,3 +425,31 @@ def output_path(project_id: int, clip_id: int) -> Path | None:
         ).fetchone()
     path = Path(row["output_path"]) if row and row["output_path"] else None
     return path if path and path.is_file() else None
+
+
+def delete_project(project_id: int) -> bool:
+    project = get_project(project_id)
+    if not project:
+        return False
+    job = latest_job(project_id)
+    if job and job["status"] in {"queued", "running"}:
+        raise RuntimeError("Wait for the active local job before deleting this project.")
+    source = Path(project["source_path"])
+    uploads = (ROOT / "data" / "uploads").resolve()
+    with closing(db()) as connection:
+        connection.execute("DELETE FROM project_segments WHERE project_id = ?", (project_id,))
+        connection.execute("DELETE FROM clip_proposals WHERE project_id = ?", (project_id,))
+        connection.execute("DELETE FROM production_jobs WHERE project_id = ?", (project_id,))
+        connection.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        connection.commit()
+    try:
+        managed_source = source.resolve().is_relative_to(uploads)
+    except OSError:
+        managed_source = False
+    if managed_source:
+        source.unlink(missing_ok=True)
+        source.with_suffix(".16k.wav").unlink(missing_ok=True)
+    project_outputs = OUTPUT_DIR / str(project_id)
+    if project_outputs.exists() and project_outputs.resolve().is_relative_to(OUTPUT_DIR.resolve()):
+        shutil.rmtree(project_outputs)
+    return True

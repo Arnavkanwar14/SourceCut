@@ -78,6 +78,17 @@ def test_example_project_opens_with_player_and_proposals() -> None:
     assert "Source evidence" in response.text
 
 
+def test_project_can_be_deleted_from_library(tmp_path: Path) -> None:
+    source = tmp_path / "delete-me.mp4"
+    source.write_bytes(b"video")
+    project_id = production.create_project("Delete test project", source, production.settings_from_form({}))
+    deleted = client.post(f"/projects/{project_id}/delete", follow_redirects=True)
+    assert deleted.status_code == 200
+    assert "Delete test project" not in deleted.text
+    assert client.get(f"/projects/{project_id}").status_code == 404
+    assert source.exists()
+
+
 def test_upload_creates_project_and_serves_source(monkeypatch) -> None:
     monkeypatch.setattr(main, "start_analysis", lambda _: 0)
     response = client.post("/upload", files={"file": ("desk-demo.mp4", b"not-real-video", "video/mp4")}, follow_redirects=False)
