@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from app.llm import ModelCandidate, ModelCandidateSet, generate_candidates
 from app.production import clean_clip_window
-from app.review import Evidence, TranscriptSegment, review_claim
+from app.review import Evidence, TranscriptSegment, local_candidates, review_claim
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "evidence_cases.json"
@@ -52,5 +52,28 @@ def test_auto_clip_window_finishes_the_spoken_thought() -> None:
         TranscriptSegment(id="s3", start=6.0, end=11.0, text="A second complete thought follows."),
     ]
     start, end = clean_clip_window(segments, "s2", 30.0)
-    assert start == pytest.approx(0.65)
-    assert end == pytest.approx(11.5)
+    assert start == pytest.approx(1.0)
+    assert end == pytest.approx(11.0)
+
+
+def test_auto_clip_window_never_runs_into_the_next_spoken_segment() -> None:
+    segments = [
+        TranscriptSegment(id="s1", start=150.31, end=150.45, text="Beautiful."),
+        TranscriptSegment(id="s2", start=150.63, end=152.43, text="Ready for our launch review meeting today."),
+        TranscriptSegment(id="s3", start=157.34, end=160.22, text="Let's switch gears to data science."),
+        TranscriptSegment(id="s4", start=162.42, end=167.76, text="The metrics are in different places."),
+        TranscriptSegment(id="s5", start=168.24, end=170.50, text="And I used ChatGPT to bring them together."),
+    ]
+    start, end = clean_clip_window(segments, "s5", 30.0)
+    assert start == pytest.approx(162.42)
+    assert end == pytest.approx(170.50)
+
+
+def test_local_candidates_prefer_a_self_contained_workflow_outcome() -> None:
+    segments = [
+        TranscriptSegment(id="s1", start=1, end=2, text="Ready for our launch review meeting today."),
+        TranscriptSegment(id="s2", start=3, end=5, text="The metrics are in different places."),
+        TranscriptSegment(id="s3", start=6, end=8, text="I used ChatGPT to bring them all together."),
+    ]
+    candidates = local_candidates(segments)
+    assert candidates[-1].claim.evidence.segment_ids == ["s3"]

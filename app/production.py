@@ -269,6 +269,10 @@ def clean_clip_window(segments: list[TranscriptSegment], source_id: str, request
     first = anchor
     while first > 0 and not re.search(r"[.!?][\"')\]]*$", segments[first - 1].text.strip()):
         first -= 1
+    if first > 0 and re.match(r"^(and|but|so|because|which|this|that|also)\b", segments[first].text.strip(), re.IGNORECASE):
+        first -= 1
+        while first > 0 and not re.search(r"[.!?][\"')\]]*$", segments[first - 1].text.strip()):
+            first -= 1
     last = anchor
     minimum = min(max(10.0, requested * 0.35), 18.0)
     while last < len(segments) - 1:
@@ -280,7 +284,9 @@ def clean_clip_window(segments: list[TranscriptSegment], source_id: str, request
         if next_duration > requested and closes_thought:
             break
         last += 1
-    return max(0.0, segments[first].start - 0.35), segments[last].end + 0.5
+    # Do not add generic lead-in/out padding: a later transcript segment can
+    # begin within it, making the rendered clip cut a new sentence in half.
+    return segments[first].start, segments[last].end
 
 
 def refine_project_cuts(project_id: int) -> bool:
@@ -293,19 +299,20 @@ def refine_project_cuts(project_id: int) -> bool:
         for row in get_segments(project_id)
     ]
     clips = get_clips(project_id)
+    selected_titles = {str(clip["title"]) for clip in clips if clip["selected"]}
     for clip in clips:
-        if not clip["evidence_segment_id"]:
-            continue
-        start, end = clean_clip_window(segments, f"segment-{clip['evidence_segment_id']}", float(settings["duration"]))
         old_output = Path(clip["output_path"]) if clip["output_path"] else None
         if old_output and old_output.exists() and old_output.resolve().is_relative_to(OUTPUT_DIR.resolve()):
             old_output.unlink(missing_ok=True)
             old_output.with_suffix(".srt").unlink(missing_ok=True)
             old_output.with_suffix(".voice.mp3").unlink(missing_ok=True)
+    _insert_proposals(project_id, segments, settings)
+    if selected_titles:
+        placeholders = ", ".join("?" for _ in selected_titles)
         with closing(db()) as connection:
             connection.execute(
-                "UPDATE clip_proposals SET start = ?, end = ?, render_status = 'draft', output_path = '', error = '' WHERE id = ?",
-                (start, end, clip["id"]),
+                f"UPDATE clip_proposals SET selected = 1 WHERE project_id = ? AND claim_status = 'supported' AND title IN ({placeholders})",
+                (project_id, *selected_titles),
             )
             connection.commit()
     return True

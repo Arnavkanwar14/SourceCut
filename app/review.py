@@ -72,7 +72,13 @@ def local_candidates(segments: list[TranscriptSegment]) -> list[Candidate]:
     if not segments:
         return []
     metric = next((segment for segment in segments if re.search(r"\d|percent|%", segment.text.lower())), segments[0])
-    workflow = next((segment for segment in segments if "review" in segment.text.lower()), segments[min(1, len(segments) - 1)])
+    workflow = next(
+        (
+            segment for segment in segments
+            if re.search(r"\b(bring|together|workflow|skills)\b", segment.text.lower())
+        ),
+        next((segment for segment in segments if "review" in segment.text.lower()), segments[min(1, len(segments) - 1)]),
+    )
     outcome = segments[min(2, len(segments) - 1)]
 
     def evidence(segment: TranscriptSegment) -> Evidence:
