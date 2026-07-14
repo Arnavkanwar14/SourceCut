@@ -117,7 +117,7 @@ def document(title: str, context: str, action_href: str, action_label: str, stat
 
 
 def evidence_object() -> str:
-    return '''<div class="object-stage" aria-hidden="true"><span class="object-orbit orbit-one"></span><span class="object-orbit orbit-two"></span><img src="/static/sourcecut-film-reel-object.png" alt=""></div>'''
+    return '''<div class="object-stage" aria-hidden="true"><span class="object-orbit orbit-one"></span><span class="object-orbit orbit-two"></span><img src="/static/sourcecut-spiral-reel-cut-object.png" alt=""></div>'''
 
 
 def project_header(eyebrow: str, title: str, detail: str, stat: str = "", stat_label: str = "") -> str:
