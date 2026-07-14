@@ -14,6 +14,7 @@ from .export import build_package, markdown
 from .media import save_upload
 from .production import (
     PLATFORMS,
+    create_example_project,
     create_project,
     get_clips,
     get_project,
@@ -176,8 +177,9 @@ def home() -> str:
         for row in projects
     ) or '<p class="empty-state">No uploaded projects yet. Start with a local recording or open the seeded review below.</p>'
     seed = '''<article class="project-card seed-card" data-reveal><div class="project-card-top"><span class="status">seeded demo</span><span>no key needed</span></div><h2>ApexFlow product webinar</h2><p>See an unsupported marketing claim become a timestamp-backed rewrite.</p><a class="review-link" href="/review">Open evidence review</a></article>'''
+    example = '''<article class="project-card example-card" data-reveal><div class="project-card-top"><span class="status">example video</span><span>22 seconds</span></div><h2>SourceCut production example</h2><p>Open a prepared player, transcript, clip proposals, and render-ready source.</p><div class="example-actions"><a href="/static/sourcecut-production-example.mp4" download>Download MP4</a><form method="post" action="/examples/production"><button>Load project</button></form></div></article>'''
     header = project_header("WORK & PRODUCTIVITY", "Turn recordings into evidence-backed social clips.", "SourceCut helps marketing teams choose moments, preserve the source behind every claim, and produce reviewable videos without losing context.", "3 steps", "source · review · render")
-    content = f'''{header}<section class="dashboard-intro" data-reveal><div><p class="eyebrow">PRODUCTION DESK</p><h2>From source to a confident handoff.</h2></div><ol><li><strong>1</strong><span>Upload a recording and choose its social edit preset.</span></li><li><strong>2</strong><span>Review proposed clips against the source transcript.</span></li><li><strong>3</strong><span>Render selected clips and export their evidence package.</span></li></ol><a class="nav-action" href="/upload">Create a project</a></section><section class="project-library" data-reveal><div class="section-heading"><div><p class="eyebrow">PROJECTS</p><h2>Production library</h2></div><a href="/upload">New project</a></div><div class="project-grid">{seed}{project_cards}</div></section><section id="outputs" class="dashboard-note" data-reveal><p class="eyebrow">WHAT MAKES IT DIFFERENT</p><p>Every selected clip carries its original timestamp and supporting transcript quote. SourceCut can accelerate production, but it never turns a weak claim into an approved one.</p></section>'''
+    content = f'''{header}<section class="dashboard-intro" data-reveal><div><p class="eyebrow">PRODUCTION DESK</p><h2>From source to a confident handoff.</h2></div><ol><li><strong>1</strong><span>Upload a recording and choose its social edit preset.</span></li><li><strong>2</strong><span>Review proposed clips against the source transcript.</span></li><li><strong>3</strong><span>Render selected clips and export their evidence package.</span></li></ol><a class="nav-action" href="/upload">Create a project</a></section><section class="project-library" data-reveal><div class="section-heading"><div><p class="eyebrow">PROJECTS</p><h2>Production library</h2></div><a href="/upload">New project</a></div><div class="project-grid">{seed}{example}{project_cards}</div></section><section id="outputs" class="dashboard-note" data-reveal><p class="eyebrow">WHAT MAKES IT DIFFERENT</p><p>Every selected clip carries its original timestamp and supporting transcript quote. SourceCut can accelerate production, but it never turns a weak claim into an approved one.</p></section>'''
     return document("Projects", "Evidence-backed production", "/upload", "Create project", "Local mode", content)
 
 
@@ -188,7 +190,17 @@ def production_options() -> str:
 @app.get("/upload", response_class=HTMLResponse)
 def upload_form(message: str = "") -> str:
     header = project_header("LOCAL PRODUCTION", "Turn a source recording into a clip desk.", "Choose a platform preset, then SourceCut will produce timestamped, evidence-linked clip proposals for your review.")
-    return document("Create project", "Local production", "/", "View projects", "CPU mode", header + production_options() + message)
+    example = '''<section class="example-callout" data-reveal><div><p class="eyebrow">NO FILE READY?</p><h2>Use the original SourceCut example.</h2><p>Download the short MP4, or open it as a prepared production project with transcript evidence and selectable clips.</p></div><div class="example-actions"><a class="review-link secondary-link" href="/static/sourcecut-production-example.mp4" download>Download example MP4</a><form method="post" action="/examples/production"><button>Load example project</button></form></div></section>'''
+    return document("Create project", "Local production", "/", "View projects", "CPU mode", header + production_options() + example + message)
+
+
+@app.post("/examples/production")
+def load_production_example() -> RedirectResponse:
+    try:
+        project_id = create_example_project()
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+    return RedirectResponse(f"/projects/{project_id}", status_code=303)
 
 
 @app.post("/upload")

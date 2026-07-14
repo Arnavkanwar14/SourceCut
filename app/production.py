@@ -18,12 +18,19 @@ from .transcription import transcribe_media
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "data" / "sourcecut.db"
 OUTPUT_DIR = ROOT / "data" / "outputs"
+EXAMPLE_SOURCE = ROOT / "static" / "sourcecut-production-example.mp4"
 WORKER_LOCK = threading.Lock()
 PLATFORMS = {
     "vertical": {"label": "Shorts / Reels / TikTok", "size": (1080, 1920), "limit": 60},
     "linkedin": {"label": "LinkedIn", "size": (1920, 1080), "limit": 60},
     "square": {"label": "Instagram feed", "size": (1080, 1080), "limit": 60},
 }
+EXAMPLE_SEGMENTS = [
+    (0.0, 5.0, "In a pilot, teams reduced handoff time by up to 40 percent."),
+    (6.0, 11.0, "The pilot was small, so we are not claiming this result for every customer yet."),
+    (12.0, 17.0, "Participants used the review queue to check product claims before publishing."),
+    (18.0, 21.0, "One pilot team cut its weekly approval meeting from 90 minutes to 45 minutes."),
+]
 
 
 def now() -> str:
@@ -127,6 +134,26 @@ def create_project(name: str, source_path: Path, settings: dict[str, object]) ->
         )
         connection.commit()
         return int(cursor.lastrowid)
+
+
+def create_example_project() -> int:
+    if not EXAMPLE_SOURCE.is_file():
+        raise FileNotFoundError("The SourceCut example video is missing.")
+    settings = settings_from_form({"platform": "vertical", "clip_count": "3", "duration": "30", "captions": "bold", "proof_cards": "on"})
+    project_id = create_project("SourceCut production example", EXAMPLE_SOURCE, settings)
+    with closing(db()) as connection:
+        connection.execute("UPDATE projects SET status = 'ready' WHERE id = ?", (project_id,))
+        connection.executemany(
+            "INSERT INTO project_segments (project_id, start, end, text) VALUES (?, ?, ?, ?)",
+            [(project_id, start, end, text) for start, end, text in EXAMPLE_SEGMENTS],
+        )
+        connection.commit()
+    segments = [
+        TranscriptSegment(id=f"segment-{row['id']}", start=row["start"], end=row["end"], text=row["text"])
+        for row in get_segments(project_id)
+    ]
+    _insert_proposals(project_id, segments, settings)
+    return project_id
 
 
 def get_project(project_id: int) -> sqlite3.Row | None:

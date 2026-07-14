@@ -69,6 +69,15 @@ def test_create_form_has_production_controls() -> None:
         assert value in response.text
 
 
+def test_example_project_opens_with_player_and_proposals() -> None:
+    response = client.post("/examples/production", follow_redirects=True)
+    assert response.status_code == 200
+    assert "SourceCut production example" in response.text
+    assert "sourcecut-production-example.mp4" not in response.text
+    assert "Review before render." in response.text
+    assert "Source evidence" in response.text
+
+
 def test_upload_creates_project_and_serves_source(monkeypatch) -> None:
     monkeypatch.setattr(main, "start_analysis", lambda _: 0)
     response = client.post("/upload", files={"file": ("desk-demo.mp4", b"not-real-video", "video/mp4")}, follow_redirects=False)
