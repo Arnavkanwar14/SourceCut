@@ -68,26 +68,86 @@ def review_claim(text: str, evidence: Evidence | None, segments: list[Transcript
     return ClaimReview(text=text, status="supported", reason="The claim preserves the cited transcript wording.", rewrite=text, evidence=evidence)
 
 
+CONTINUATION_OPENERS = re.compile(r"^(and|but|so|because|which|this|that|also)\b", re.IGNORECASE)
+FILLER_LINES = re.compile(r"^(beautiful|awesome|it looks good|well, that's running|and here we go|and that's it)\b", re.IGNORECASE)
+
+
+def _moment_score(segment: TranscriptSegment) -> float:
+    text = segment.text.strip()
+    words = re.findall(r"[a-z0-9']+", text.lower())
+    score = min(len(words), 20) * 0.2
+    if re.search(r"[.!?][\"')\]]*$", text):
+        score += 1.5
+    if re.search(r"\b(automatically|found|set|built|shared|publish|flagged|fix|ship|generated|delegate|bring)\b", text, re.IGNORECASE):
+        score += 4.0
+    if re.search(r"\b(today|now|new|imagine|take a look|let's|can you|here's)\b", text, re.IGNORECASE):
+        score += 2.5
+    if re.search(r"\b(work|tools|workflow|calendar|data|metrics|dashboard|campaign|projects|team|brand|files|mobile|desktop)\b", text, re.IGNORECASE):
+        score += 1.5
+    if re.match(r"^(i can|you can)\b", text, re.IGNORECASE):
+        score += 1.0
+    if CONTINUATION_OPENERS.match(text):
+        score -= 4.0
+    if len(words) < 7:
+        score -= 3.0
+    if FILLER_LINES.match(text):
+        score -= 8.0
+    return score
+
+
+def _moment_title(text: str) -> str:
+    lowered = text.lower()
+    if re.search(r"\b(fix|bug|ship|pr|version)\b", lowered):
+        return "Ship the fix"
+    if re.search(r"\b(data|metrics|dashboard|analytics)\b", lowered):
+        return "Data to decision"
+    if re.search(r"\b(calendar|slack|drive|briefing|day)\b", lowered):
+        return "Morning prep workflow"
+    if re.search(r"\b(image|brand|campaign|visuals|ideas)\b", lowered):
+        return "Creative workflow"
+    if re.search(r"\b(automation|automatically|set)\b", lowered):
+        return "Set it once"
+    if re.search(r"\b(today|new|release)\b", lowered):
+        return "Launch hook"
+    return "Product proof"
+
+
 def local_candidates(segments: list[TranscriptSegment]) -> list[Candidate]:
+    """Choose distinct, transcript-backed social moments without inventing claims."""
     if not segments:
         return []
-    metric = next((segment for segment in segments if re.search(r"\d|percent|%", segment.text.lower())), segments[0])
-    workflow = next(
-        (
-            segment for segment in segments
-            if re.search(r"\b(bring|together|workflow|skills)\b", segment.text.lower())
-        ),
-        next((segment for segment in segments if "review" in segment.text.lower()), segments[min(1, len(segments) - 1)]),
-    )
-    outcome = segments[min(2, len(segments) - 1)]
+    maximum = 5
+    terminal = [segment for segment in segments if re.search(r"[.!?][\"')\]]*$", segment.text.strip())]
+    ranked = sorted(terminal or segments, key=lambda segment: (_moment_score(segment), -segment.start), reverse=True)
+    chosen: list[TranscriptSegment] = []
+    for segment in ranked:
+        if CONTINUATION_OPENERS.match(segment.text.strip()):
+            continue
+        if any(abs(segment.start - prior.start) < 28 for prior in chosen):
+            continue
+        chosen.append(segment)
+        if len(chosen) == maximum:
+            break
+    if len(chosen) < 3:
+        for segment in ranked:
+            if segment not in chosen and not CONTINUATION_OPENERS.match(segment.text.strip()):
+                chosen.append(segment)
+            if len(chosen) == maximum:
+                break
 
-    def evidence(segment: TranscriptSegment) -> Evidence:
-        return Evidence(segment_ids=[segment.id], quote=segment.text, start=segment.start, end=segment.end)
-
-    number = re.search(r"(?:up to )?\d+(?:\.\d+)?(?:\s*(?:percent|%))?", metric.text.lower())
-    risky = f"Teams reduce handoff time by {number.group(0).replace('up to ', '')}." if number else "Teams get faster results."
-    return [
-        Candidate(title="Pilot result, with context", draft=metric.text, claim=review_claim(metric.text, evidence(metric), segments)),
-        Candidate(title="Risky performance promise", draft=risky, claim=review_claim(risky, evidence(metric), segments)),
-        Candidate(title="Workflow proof", draft=workflow.text, claim=review_claim(workflow.text, evidence(workflow), segments)),
-    ]
+    used_titles: set[str] = set()
+    candidates: list[Candidate] = []
+    for segment in chosen:
+        title = _moment_title(segment.text)
+        if title in used_titles:
+            title = f"{title} {len(used_titles) + 1}"
+        used_titles.add(title)
+        evidence = Evidence(segment_ids=[segment.id], quote=segment.text, start=segment.start, end=segment.end)
+        candidates.append(Candidate(title=title, draft=segment.text, claim=review_claim(segment.text, evidence, segments)))
+    if len(candidates) < 3 and chosen:
+        source = chosen[0]
+        evidence = Evidence(segment_ids=[source.id], quote=source.text, start=source.start, end=source.end)
+        number = re.search(r"(?:up to )?\d+(?:\.\d+)?(?:\s*(?:percent|%))?", source.text.lower())
+        draft = f"Teams reduce handoff time by {number.group(0).replace('up to ', '')}." if number else "Teams always get faster results."
+        candidates.append(Candidate(title="Needs evidence review", draft=draft, claim=review_claim(draft, evidence, segments)))
+    return candidates

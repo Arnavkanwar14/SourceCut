@@ -299,7 +299,7 @@ def refine_project_cuts(project_id: int) -> bool:
         for row in get_segments(project_id)
     ]
     clips = get_clips(project_id)
-    selected_titles = {str(clip["title"]) for clip in clips if clip["selected"]}
+    selected_count = sum(1 for clip in clips if clip["selected"])
     for clip in clips:
         old_output = Path(clip["output_path"]) if clip["output_path"] else None
         if old_output and old_output.exists() and old_output.resolve().is_relative_to(OUTPUT_DIR.resolve()):
@@ -307,12 +307,11 @@ def refine_project_cuts(project_id: int) -> bool:
             old_output.with_suffix(".srt").unlink(missing_ok=True)
             old_output.with_suffix(".voice.mp3").unlink(missing_ok=True)
     _insert_proposals(project_id, segments, settings)
-    if selected_titles:
-        placeholders = ", ".join("?" for _ in selected_titles)
+    if selected_count:
         with closing(db()) as connection:
             connection.execute(
-                f"UPDATE clip_proposals SET selected = 1 WHERE project_id = ? AND claim_status = 'supported' AND title IN ({placeholders})",
-                (project_id, *selected_titles),
+                "UPDATE clip_proposals SET selected = 1 WHERE id IN (SELECT id FROM clip_proposals WHERE project_id = ? AND claim_status = 'supported' ORDER BY id LIMIT ?)",
+                (project_id, selected_count),
             )
             connection.commit()
     return True

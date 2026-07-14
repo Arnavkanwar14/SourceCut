@@ -69,11 +69,13 @@ def test_auto_clip_window_never_runs_into_the_next_spoken_segment() -> None:
     assert end == pytest.approx(170.50)
 
 
-def test_local_candidates_prefer_a_self_contained_workflow_outcome() -> None:
+def test_local_candidates_choose_distinct_source_backed_product_moments() -> None:
     segments = [
-        TranscriptSegment(id="s1", start=1, end=2, text="Ready for our launch review meeting today."),
-        TranscriptSegment(id="s2", start=3, end=5, text="The metrics are in different places."),
-        TranscriptSegment(id="s3", start=6, end=8, text="I used ChatGPT to bring them all together."),
+        TranscriptSegment(id="s1", start=1, end=4, text="Today, we are releasing a new product workflow."),
+        TranscriptSegment(id="s2", start=6, end=9, text="And it connects your tools in one place."),
+        TranscriptSegment(id="s3", start=40, end=45, text="ChatGPT automatically brought the metrics together in one dashboard."),
+        TranscriptSegment(id="s4", start=80, end=85, text="Publish the fix so the team can ship a new version of the app."),
     ]
     candidates = local_candidates(segments)
-    assert candidates[-1].claim.evidence.segment_ids == ["s3"]
+    assert [candidate.claim.evidence.segment_ids for candidate in candidates] == [["s4"], ["s3"], ["s1"]]
+    assert all(candidate.claim.status == "supported" for candidate in candidates)
