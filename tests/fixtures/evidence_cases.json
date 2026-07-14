@@ -1,0 +1,21 @@
+{
+  "segments": [
+    {"id": "s1", "start": 18.0, "end": 24.0, "text": "In a 12-customer pilot, teams reduced handoff time by up to 40 percent."},
+    {"id": "s2", "start": 32.0, "end": 36.0, "text": "The pilot was small, so we are not claiming this result for every customer yet."},
+    {"id": "s3", "start": 64.0, "end": 68.0, "text": "Participants used the review queue to check product claims before publishing."}
+  ],
+  "cases": [
+    {"claim": "In a 12-customer pilot, teams reduced handoff time by up to 40 percent.", "evidence": {"segment_ids": ["s1"], "quote": "In a 12-customer pilot, teams reduced handoff time by up to 40 percent.", "start": 18.0, "end": 24.0}, "expected": "supported"},
+    {"claim": "Teams reduced handoff time by 40 percent.", "evidence": {"segment_ids": ["s1"], "quote": "In a 12-customer pilot, teams reduced handoff time by up to 40 percent.", "start": 18.0, "end": 24.0}, "expected": "unsupported"},
+    {"claim": "Pilot teams reduced handoff time by 40 percent.", "evidence": {"segment_ids": ["s1"], "quote": "In a 12-customer pilot, teams reduced handoff time by up to 40 percent.", "start": 18.0, "end": 24.0}, "expected": "unsupported"},
+    {"claim": "Every team reduced handoff time by up to 40 percent.", "evidence": {"segment_ids": ["s1"], "quote": "In a 12-customer pilot, teams reduced handoff time by up to 40 percent.", "start": 18.0, "end": 24.0}, "expected": "unsupported"},
+    {"claim": "Participants used the review queue to check product claims before publishing.", "evidence": {"segment_ids": ["s3"], "quote": "Participants used the review queue to check product claims before publishing.", "start": 64.0, "end": 68.0}, "expected": "supported"},
+    {"claim": "Customers report better outcomes.", "evidence": {"segment_ids": ["s3"], "quote": "Participants used the review queue to check product claims before publishing.", "start": 64.0, "end": 68.0}, "expected": "needs_review"},
+    {"claim": "Participants used the review queue.", "evidence": null, "expected": "needs_review"},
+    {"claim": "Participants used the review queue.", "evidence": {"segment_ids": ["missing"], "quote": "Participants used the review queue.", "start": 64.0, "end": 68.0}, "expected": "needs_review"},
+    {"claim": "Participants used the review queue.", "evidence": {"segment_ids": ["s3"], "quote": "A different quote.", "start": 64.0, "end": 68.0}, "expected": "needs_review"},
+    {"claim": "Participants used the review queue.", "evidence": {"segment_ids": ["s3"], "quote": "Participants used the review queue to check product claims before publishing.", "start": 63.0, "end": 68.0}, "expected": "needs_review"},
+    {"claim": "Review queue publishing.", "evidence": {"segment_ids": ["s3"], "quote": "Participants used the review queue to check product claims before publishing.", "start": 64.0, "end": 68.0}, "expected": "supported"},
+    {"claim": "This is unrelated.", "evidence": {"segment_ids": ["s1"], "quote": "In a 12-customer pilot, teams reduced handoff time by up to 40 percent.", "start": 18.0, "end": 24.0}, "expected": "needs_review"}
+  ]
+}

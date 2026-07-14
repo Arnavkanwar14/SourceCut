@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .media import remove_media, save_upload
+from .review import TranscriptSegment, local_candidates
 from .transcription import transcribe_media
 
 
@@ -131,7 +132,39 @@ async def upload_media(file: UploadFile = File(...)) -> str:
         )
         connection.commit()
     rows = "".join(f'<li><time>{segment["start"]:05.2f}</time><span>{escape(segment["text"])}</span></li>' for segment in segments) or "<li>No speech was detected.</li>"
-    return HTMLResponse(upload_page(f'<section class="transcript-result"><h2>Transcript ready</h2><p>{len(segments)} timestamped segments from {escape(file.filename or path.name)}.</p><ol>{rows}</ol></section>'))
+    review_link = f'<p><a class="review-link" href="/uploads/{cursor.lastrowid}/review">Generate review candidates</a></p>' if segments else ""
+    return HTMLResponse(upload_page(f'<section class="transcript-result"><h2>Transcript ready</h2><p>{len(segments)} timestamped segments from {escape(file.filename or path.name)}.</p><ol>{rows}</ol>{review_link}</section>'))
+
+
+def load_segments(upload_id: int) -> tuple[str, list[TranscriptSegment]]:
+    with closing(db()) as connection:
+        upload = connection.execute("SELECT original_name FROM uploads WHERE id = ?", (upload_id,)).fetchone()
+        rows = connection.execute("SELECT id, start, end, text FROM transcript_segments WHERE upload_id = ? ORDER BY id", (upload_id,)).fetchall()
+    if not upload:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    return upload["original_name"], [
+        TranscriptSegment(id=f"segment-{row['id']}", start=row["start"], end=row["end"], text=row["text"])
+        for row in rows
+    ]
+
+
+@app.get("/uploads/{upload_id}/review", response_class=HTMLResponse)
+def review_upload(upload_id: int) -> str:
+    name, segments = load_segments(upload_id)
+    candidates = local_candidates(segments)
+    if not candidates:
+        return HTMLResponse(upload_page('<p class="error">No speech was detected, so there is nothing to review yet.</p>'), status_code=422)
+    cards = "".join(
+        f'''<article class="claim {candidate.claim.status}"><div class="claim-top"><span class="status">{candidate.claim.status.replace('_', ' ')}</span><a href="#evidence-{candidate.claim.evidence.segment_ids[0]}">Evidence</a></div><h2>{escape(candidate.title)}</h2><p class="claim-copy">{escape(candidate.draft)}</p><p class="reason">{escape(candidate.claim.reason)}</p><p><strong>Grounded rewrite:</strong> {escape(candidate.claim.rewrite)}</p></article>'''
+        for candidate in candidates
+    )
+    transcript = "".join(
+        f'<li id="evidence-{segment.id}"><time>{segment.start:05.2f}</time><span>{escape(segment.text)}</span></li>'
+        for segment in segments
+    )
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Review | SourceCut</title><link rel="stylesheet" href="/static/style.css"></head><body>
+    <header><strong>SourceCut</strong><span>Local candidate review</span><a href="/upload">Upload another recording</a><b>Local analysis</b></header>
+    <main><section class="project"><div><p class="eyebrow">CONTENT CANDIDATES</p><h1>{escape(name)}</h1><p>Deterministic local analysis. Statuses are support in the shown transcript, not real-world verification.</p></div></section><section class="review-grid"><section>{cards}</section><aside class="evidence"><p class="eyebrow">SOURCE EVIDENCE</p><h2>Transcript</h2><ol>{transcript}</ol></aside></section></main></body></html>'''
 
 
 def update_claim(claim_id: int, approved: int) -> RedirectResponse:

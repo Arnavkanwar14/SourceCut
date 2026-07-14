@@ -17,6 +17,10 @@ def test_seeded_review_is_visible() -> None:
 
 def test_grounded_rewrite_can_be_accepted_and_restored() -> None:
     client.post("/claims/1/restore")
+    accepted = client.post("/claims/1/accept", follow_redirects=True)
+    assert accepted.status_code == 200
+    assert "Pilot teams reduced handoff time by up to 40%." in accepted.text
+    client.post("/claims/1/restore")
 
 
 def test_upload_uses_cpu_transcription_result(monkeypatch) -> None:
@@ -25,12 +29,9 @@ def test_upload_uses_cpu_transcription_result(monkeypatch) -> None:
     assert response.status_code == 200
     assert "Transcript ready" in response.text
     assert "A local transcript." in response.text
+    assert "Generate review candidates" in response.text
 
 
 def test_upload_rejects_unapproved_extension() -> None:
     response = client.post("/upload", files={"file": ("unsafe.exe", b"not-media", "application/octet-stream")})
     assert response.status_code == 400
-    accepted = client.post("/claims/1/accept", follow_redirects=True)
-    assert accepted.status_code == 200
-    assert "Pilot teams reduced handoff time by up to 40%." in accepted.text
-    client.post("/claims/1/restore")
