@@ -5,12 +5,13 @@ from contextlib import closing
 from html import escape
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .media import remove_media, save_upload
-from .review import TranscriptSegment, local_candidates
+from .export import build_package, markdown
+from .review import Evidence, TranscriptSegment, local_candidates, review_claim
 from .transcription import transcribe_media
 
 
@@ -27,6 +28,13 @@ SEED_CLAIMS = [
     ("Teams can review product claims before publishing.", "supported", "The source directly describes the review queue workflow.", "Teams used a review queue to check product claims before publishing.", "s3"),
     ("Approval meetings are cut in half.", "needs_review", "One pilot team reported this result; the source does not establish it as a general outcome.", "One pilot team cut its weekly approval meeting from 90 to 45 minutes.", "s4"),
 ]
+SEED_SEGMENTS = [
+    TranscriptSegment(id="s1", start=18.0, end=24.0, text=TRANSCRIPT[0][2]),
+    TranscriptSegment(id="s2", start=32.0, end=36.0, text=TRANSCRIPT[1][2]),
+    TranscriptSegment(id="s3", start=64.0, end=68.0, text=TRANSCRIPT[2][2]),
+    TranscriptSegment(id="s4", start=102.0, end=108.0, text=TRANSCRIPT[3][2]),
+]
+SEED_SEGMENT_BY_ID = {segment.id: segment for segment in SEED_SEGMENTS}
 
 
 app = FastAPI(title="SourceCut")
@@ -70,6 +78,22 @@ def get_claims() -> list[sqlite3.Row]:
         return connection.execute("SELECT * FROM claims ORDER BY id").fetchall()
 
 
+def get_claim(claim_id: int) -> sqlite3.Row:
+    init_db()
+    with closing(db()) as connection:
+        claim = connection.execute("SELECT * FROM claims WHERE id = ?", (claim_id,)).fetchone()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    return claim
+
+
+def review_seeded_rewrite(claim: sqlite3.Row, rewrite: str):
+    segment_id = claim["evidence_ids"].split(",")[0]
+    segment = SEED_SEGMENT_BY_ID[segment_id]
+    evidence = Evidence(segment_ids=[segment.id], quote=segment.text, start=segment.start, end=segment.end)
+    return review_claim(rewrite, evidence, SEED_SEGMENTS)
+
+
 def document(title: str, context: str, action_href: str, action_label: str, status: str, content: str) -> str:
     return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)} | SourceCut</title><link rel="stylesheet" href="/static/style.css"><script defer src="/static/app.js"></script></head><body>
     <header class="topbar" data-reveal><a class="brand" href="/" aria-label="SourceCut home">SOURCECUT</a><span class="product-context">{escape(context)}</span><nav aria-label="Primary navigation"><a href="/">Review</a><a href="/upload">Upload</a></nav><a class="nav-action" href="{action_href}">{escape(action_label)}</a><b class="mode-chip">{escape(status)}</b></header>
@@ -92,11 +116,17 @@ def claim_html(claim: sqlite3.Row) -> str:
     action = (
         f'<form method="post" action="/claims/{claim["id"]}/restore" data-action-form><button class="secondary">Restore draft</button></form>'
         if claim["approved"]
-        else f'<form method="post" action="/claims/{claim["id"]}/accept" data-action-form><button>Accept grounded rewrite</button></form>'
+        else f'<form method="post" action="/claims/{claim["id"]}/accept" data-action-form><button>{"Approve rewrite" if claim["rewrite"] != claim["draft"] else "Mark approved"}</button></form>'
     )
+    proposal = (
+        f'<p class="proposed-rewrite"><span>PROPOSED REWRITE</span>{escape(claim["rewrite"])}</p>'
+        if not claim["approved"] and claim["rewrite"] != claim["draft"]
+        else ""
+    )
+    editor = "" if claim["approved"] else f'''<details class="claim-editor"><summary>Edit rewrite</summary><form method="post" action="/claims/{claim["id"]}/edit" data-action-form><label for="rewrite-{claim["id"]}">Rewrite grounded in the linked evidence</label><textarea id="rewrite-{claim["id"]}" name="rewrite" rows="3" required>{escape(claim["rewrite"])}</textarea><button class="secondary">Save and recheck</button></form></details>'''
     return f'''<article class="claim {status}" data-reveal>
       <div class="claim-top"><span class="status">{escape(status.replace("_", " "))}</span><a href="#evidence-{claim["evidence_ids"].split(",")[0]}" data-evidence-link>Evidence: {escape(evidence)}</a></div>
-      <p class="claim-copy">{escape(text)}</p><p class="reason">{escape(claim["reason"])}</p>{action}</article>'''
+      <p class="claim-copy">{escape(text)}</p>{proposal}<p class="reason">{escape(claim["reason"])}</p><div class="claim-actions">{action}{editor}</div></article>'''
 
 
 def evidence_panel(transcript: str, note: str = "Statuses reflect support in this transcript, not real-world verification.") -> str:
@@ -105,6 +135,12 @@ def evidence_panel(transcript: str, note: str = "Statuses reflect support in thi
 
 def review_band(cards: str, title: str, intro: str, count: str) -> str:
     return f'''<section class="review-band" data-reveal><div class="review-heading"><div><p class="eyebrow">DRAFT REVIEW</p><h2>{escape(title)}</h2></div><span>{escape(count)}</span></div><p class="review-intro">{escape(intro)}</p><div class="claims">{cards}</div></section>'''
+
+
+def export_controls(approved: int) -> str:
+    if not approved:
+        return ""
+    return f'''<section class="export-band" data-reveal><div><p class="eyebrow">APPROVED PACKAGE</p><h2>{approved} claim{"s" if approved != 1 else ""} ready to hand off.</h2></div><div class="export-actions"><a class="review-link" href="/export.md">Markdown</a><a class="review-link secondary-link" href="/export.json">JSON</a></div></section>'''
 
 
 def page() -> str:
@@ -129,7 +165,7 @@ def page() -> str:
         "A faster review queue helps content teams move from raw webinar to publishable post without losing the evidence behind each claim.",
         "3 claims",
     )
-    content = f'''{header}<section class="review-layout">{angles}{review}{evidence_panel(transcript)}</section>'''
+    content = f'''{header}<section class="review-layout">{angles}{review}{evidence_panel(transcript)}</section>{export_controls(grounded)}'''
     return document("SourceCut", "Evidence-backed content review", "/upload", "Upload media", "Demo mode", content)
 
 
@@ -210,20 +246,62 @@ def review_upload(upload_id: int) -> str:
     return document("Review candidates", "Local candidate review", "/upload", "Upload another", "Local analysis", content)
 
 
-def update_claim(claim_id: int, approved: int) -> RedirectResponse:
-    with closing(db()) as connection:
-        updated = connection.execute("UPDATE claims SET approved = ? WHERE id = ?", (approved, claim_id)).rowcount
-        connection.commit()
-    if not updated:
-        raise HTTPException(status_code=404, detail="Claim not found")
-    return RedirectResponse("/", status_code=303)
-
-
 @app.post("/claims/{claim_id}/accept")
 def accept(claim_id: int) -> RedirectResponse:
-    return update_claim(claim_id, 1)
+    claim = get_claim(claim_id)
+    review = review_seeded_rewrite(claim, claim["rewrite"])
+    with closing(db()) as connection:
+        connection.execute(
+            "UPDATE claims SET status = ?, reason = ?, approved = ? WHERE id = ?",
+            (review.status, review.reason, int(review.status == "supported"), claim_id),
+        )
+        connection.commit()
+    return RedirectResponse("/", status_code=303)
 
 
 @app.post("/claims/{claim_id}/restore")
 def restore(claim_id: int) -> RedirectResponse:
-    return update_claim(claim_id, 0)
+    if claim_id < 1 or claim_id > len(SEED_CLAIMS):
+        raise HTTPException(status_code=404, detail="Claim not found")
+    draft, status, reason, rewrite, evidence_ids = SEED_CLAIMS[claim_id - 1]
+    with closing(db()) as connection:
+        connection.execute(
+            "UPDATE claims SET draft = ?, status = ?, reason = ?, rewrite = ?, evidence_ids = ?, approved = 0 WHERE id = ?",
+            (draft, status, reason, rewrite, evidence_ids, claim_id),
+        )
+        connection.commit()
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/claims/{claim_id}/edit")
+def edit_rewrite(claim_id: int, rewrite: str = Form(...)) -> RedirectResponse:
+    text = rewrite.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="Rewrite cannot be empty")
+    claim = get_claim(claim_id)
+    review = review_seeded_rewrite(claim, text)
+    with closing(db()) as connection:
+        connection.execute(
+            "UPDATE claims SET rewrite = ?, status = ?, reason = ?, approved = 0 WHERE id = ?",
+            (text, review.status, review.reason, claim_id),
+        )
+        connection.commit()
+    return RedirectResponse("/", status_code=303)
+
+
+@app.get("/export.json")
+def export_json() -> JSONResponse:
+    return JSONResponse(
+        build_package(get_claims(), SEED_SEGMENT_BY_ID),
+        headers={"Content-Disposition": 'attachment; filename="sourcecut-approved-package.json"'},
+    )
+
+
+@app.get("/export.md")
+def export_markdown() -> PlainTextResponse:
+    package = build_package(get_claims(), SEED_SEGMENT_BY_ID)
+    return PlainTextResponse(
+        markdown(package),
+        media_type="text/markdown",
+        headers={"Content-Disposition": 'attachment; filename="sourcecut-approved-package.md"'},
+    )
