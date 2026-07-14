@@ -4,9 +4,9 @@
 
 **SourceCut** is a Work & Productivity project for marketing and agency teams. It turns a long-form recording into publishable social-content drafts, but its core value is a review surface that links each generated claim to a transcript timestamp and flags unsupported or risky wording. The project starts in this empty directory; `shortsmaker` is a read-only reference for its local transcription, timestamps, and FFmpeg patterns. The chosen approach is a standalone Python/FastAPI app with a simple server-rendered review interface, free-first transcription, and a provider adapter that uses Groq during development and GPT-5.6 after Build Week credits are available.
 
-**Current status:** Planning complete; implementation has not started.
+**Current status:** Stages 0 and 1 are complete and verified locally. The no-key seeded review page persists approval/revert actions; local MP3/MP4/WAV uploads normalize through the bundled FFmpeg binary and transcribe on CPU with persisted timestamped segments.
 
-**Next step:** Stage 0, create the repository skeleton and make the seeded review demo load locally.
+**Next step:** Stage 2, add structured candidate generation and mechanically validated transcript evidence while preserving the seeded no-key path.
 
 ## Product Definition
 
