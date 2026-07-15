@@ -10,7 +10,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .media import ffmpeg_exe, inspect_media
+from .media import ffmpeg_exe, inspect_media, media_fingerprint
 from .review import TranscriptSegment, local_candidates
 from .transcription import transcribe_media
 
@@ -118,6 +118,9 @@ def init_db() -> None:
                 finished_at = CASE WHEN finished_at = '' AND status IN ('done', 'failed') THEN updated_at ELSE finished_at END
             """
         )
+        project_columns = {row["name"] for row in connection.execute("PRAGMA table_info(projects)")}
+        if "source_fingerprint" not in project_columns:
+            connection.execute("ALTER TABLE projects ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT ''")
         connection.commit()
 
 
@@ -158,13 +161,14 @@ def _kokoro_voice(voice: object) -> str:
     return value if value in {"am_adam", "af_sarah"} else "am_adam"
 
 
-def create_project(name: str, source_path: Path, settings: dict[str, object]) -> int:
+def create_project(name: str, source_path: Path, settings: dict[str, object], source_hash: str | None = None) -> int:
     init_db()
     media_type = source_path.suffix.lower().lstrip(".")
+    source_hash = source_hash if source_hash is not None else media_fingerprint(source_path)
     with closing(db()) as connection:
         cursor = connection.execute(
-            "INSERT INTO projects (name, source_path, media_type, settings_json, created_at) VALUES (?, ?, ?, ?, ?)",
-            (name or source_path.name, str(source_path), media_type, json.dumps(settings), now()),
+            "INSERT INTO projects (name, source_path, media_type, settings_json, source_fingerprint, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (name or source_path.name, str(source_path), media_type, json.dumps(settings), source_hash, now()),
         )
         connection.commit()
         return int(cursor.lastrowid)
@@ -173,6 +177,9 @@ def create_project(name: str, source_path: Path, settings: dict[str, object]) ->
 def create_example_project() -> int:
     if not EXAMPLE_SOURCE.is_file():
         raise FileNotFoundError("The SourceCut example video is missing.")
+    existing = find_project_by_fingerprint(media_fingerprint(EXAMPLE_SOURCE))
+    if existing:
+        return int(existing["id"])
     settings = settings_from_form({"platform": "vertical", "clip_count": "3", "duration": "30", "captions": "bold", "proof_cards": "on"})
     project_id = create_project("SourceCut production example", EXAMPLE_SOURCE, settings)
     with closing(db()) as connection:
@@ -194,6 +201,16 @@ def get_project(project_id: int) -> sqlite3.Row | None:
     init_db()
     with closing(db()) as connection:
         return connection.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+
+
+def find_project_by_fingerprint(source_hash: str) -> sqlite3.Row | None:
+    if not source_hash:
+        return None
+    init_db()
+    with closing(db()) as connection:
+        return connection.execute(
+            "SELECT * FROM projects WHERE source_fingerprint = ? ORDER BY id DESC LIMIT 1", (source_hash,)
+        ).fetchone()
 
 
 def list_projects() -> list[sqlite3.Row]:
@@ -261,6 +278,24 @@ def job_queue_position(job_id: int) -> int:
             "SELECT COUNT(*) AS position FROM production_jobs WHERE status = 'queued' AND id <= ?", (job_id,)
         ).fetchone()
     return int(row["position"] or 0)
+
+
+def recover_interrupted_jobs() -> int:
+    stamp = now()
+    with closing(db()) as connection:
+        cursor = connection.execute(
+            """
+            UPDATE production_jobs
+            SET status = 'failed', stage = 'Interrupted',
+                detail = 'The local server restarted before this job finished. Retry the selected clips.',
+                progress = 100, updated_at = ?, finished_at = ?
+            WHERE status IN ('queued', 'running')
+            """,
+            (stamp, stamp),
+        )
+        connection.execute("UPDATE projects SET status = 'failed' WHERE status IN ('queued', 'processing', 'rendering')")
+        connection.commit()
+    return int(cursor.rowcount)
 
 
 def parse_manual_ranges(value: str) -> list[tuple[float, float]]:
@@ -535,14 +570,14 @@ def _render_one(project: sqlite3.Row, clip: sqlite3.Row, settings: dict[str, obj
     return True, str(destination), ""
 
 
-def run_render(project_id: int, job_id: int) -> None:
+def run_render(project_id: int, job_id: int, clip_ids: set[int] | None = None) -> None:
     try:
         with WORKER_LOCK:
             project = get_project(project_id)
             if not project:
                 return
             settings = json.loads(project["settings_json"])
-            clips = [clip for clip in get_clips(project_id) if clip["selected"]]
+            clips = [clip for clip in get_clips(project_id) if clip["selected"] and (clip_ids is None or clip["id"] in clip_ids)]
             if not clips:
                 update_job(job_id, "failed", "Nothing selected", "Choose one or more clip proposals before rendering.")
                 return
@@ -552,6 +587,9 @@ def run_render(project_id: int, job_id: int) -> None:
             for index, clip in enumerate(clips, 1):
                 progress = 10 + int((index - 1) / len(clips) * 80)
                 update_job(job_id, "running", "Render selected clips", f"Rendering {index} of {len(clips)}.", progress)
+                if output_path(project_id, int(clip["id"])):
+                    update_job(job_id, "running", "Reuse verified render", f"Reusing cached output {index} of {len(clips)}.", progress)
+                    continue
                 with closing(db()) as connection:
                     connection.execute("UPDATE clip_proposals SET render_status = 'rendering', error = '' WHERE id = ?", (clip["id"],))
                     connection.commit()
@@ -570,9 +608,9 @@ def run_render(project_id: int, job_id: int) -> None:
         update_job(job_id, "failed", "Render failed", str(error)[-700:], 100)
 
 
-def start_render(project_id: int) -> int:
+def start_render(project_id: int, clip_ids: set[int] | None = None) -> int:
     job_id = make_job(project_id, "render", "Queued")
-    threading.Thread(target=run_render, args=(project_id, job_id), daemon=True).start()
+    threading.Thread(target=run_render, args=(project_id, job_id, clip_ids), daemon=True).start()
     return job_id
 
 

@@ -1,4 +1,5 @@
 from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
 from fastapi import HTTPException
@@ -151,6 +152,33 @@ def test_project_export_only_includes_selected_clips(monkeypatch, tmp_path: Path
     assert exported.json()["clips"][0]["evidence"]["quote"]
 
 
+def test_finished_project_has_handoff_exports_and_truthful_audio(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    rendered = tmp_path / "finished.mp4"
+    source.write_bytes(b"source")
+    rendered.write_bytes(b"finished video")
+    settings = production.settings_from_form({"audio_mode": "voiceover", "voice": "af_sarah"})
+    project_id = production.create_project("Handoff demo", source, settings)
+    with production.closing(production.db()) as connection:
+        connection.execute("INSERT INTO project_segments (project_id, start, end, text) VALUES (?, 1, 4, ?)", (project_id, "Evidence quote."))
+        segment_id = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
+        connection.execute(
+            "INSERT INTO clip_proposals (project_id, title, start, end, hook, caption, evidence_segment_id, evidence_quote, claim_status, reason, selected, render_status, output_path) VALUES (?, ?, 1, 4, ?, ?, ?, ?, 'supported', ?, 1, 'ready', ?)",
+            (project_id, "Publishable moment", "Useful hook", "Copy-ready caption", segment_id, "Evidence quote.", "Direct source wording.", str(rendered)),
+        )
+        connection.commit()
+    exported = client.get(f"/projects/{project_id}/export.json")
+    assert exported.json()["render_settings"]["audio"] == "Kokoro local voiceover - Sarah"
+    assert "Evidence quote." in client.get(f"/projects/{project_id}/export.md").text
+    handoff = client.get(f"/projects/{project_id}/handoff")
+    assert "Download ZIP" in handoff.text
+    archive = client.get(f"/projects/{project_id}/handoff.zip")
+    archive_path = tmp_path / "handoff.zip"
+    archive_path.write_bytes(archive.content)
+    with ZipFile(archive_path) as bundle:
+        assert {"evidence-package.json", "evidence-package.md", "videos/finished.mp4"}.issubset(bundle.namelist())
+
+
 def test_clip_selection_returns_json_without_reloading_workspace(tmp_path: Path) -> None:
     source = tmp_path / "selection-demo.mp4"
     source.write_bytes(b"video")
@@ -170,6 +198,15 @@ def test_clip_selection_returns_json_without_reloading_workspace(tmp_path: Path)
     assert response.json() == {"clip_id": cursor.lastrowid, "selected": True, "selected_count": 1, "clip_count": 1}
 
 
+def test_workspace_client_uses_in_place_updates_and_reduced_motion() -> None:
+    root = Path(__file__).parent.parent
+    script = (root / "static" / "app.js").read_text(encoding="utf-8")
+    styles = (root / "static" / "style.css").read_text(encoding="utf-8")
+    assert "window.location.reload" not in script
+    assert "sourcecut:job-started" in script
+    assert "prefers-reduced-motion" in styles
+
+
 def test_render_starts_without_reloading_workspace(monkeypatch, tmp_path: Path) -> None:
     source = tmp_path / "render-demo.mp4"
     source.write_bytes(b"video")
@@ -185,6 +222,45 @@ def test_render_starts_without_reloading_workspace(monkeypatch, tmp_path: Path) 
     assert response.status_code == 202
     assert response.json()["action"] == "render_started"
     assert response.json()["job"]["status"] == "queued"
+
+
+def test_duplicate_upload_reopens_existing_project(monkeypatch) -> None:
+    monkeypatch.setattr(main, "start_analysis", lambda _: 0)
+    first = client.post("/upload", files={"file": ("same.mp4", b"one-source", "video/mp4")}, follow_redirects=False)
+    second = client.post("/upload", files={"file": ("same.mp4", b"one-source", "video/mp4")}, follow_redirects=False)
+    assert first.status_code == second.status_code == 303
+    assert first.headers["location"] == second.headers["location"]
+
+
+def test_interrupted_job_is_marked_retryable(tmp_path: Path) -> None:
+    source = tmp_path / "interrupted.mp4"
+    source.write_bytes(b"video")
+    project_id = production.create_project("Interrupted", source, production.settings_from_form({}))
+    job_id = production.make_job(project_id, "render", "Queued")
+    production.update_job(job_id, "running", "Render selected clips", "Working", 30)
+    assert production.recover_interrupted_jobs() >= 1
+    job = production.latest_job(project_id)
+    assert job["status"] == "failed"
+    assert job["stage"] == "Interrupted"
+    assert "Retry" in job["detail"]
+
+
+def test_cached_render_reuses_verified_output(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    output = tmp_path / "cached.mp4"
+    source.write_bytes(b"source")
+    output.write_bytes(b"cached")
+    project_id = production.create_project("Cached render", source, production.settings_from_form({}))
+    with production.closing(production.db()) as connection:
+        connection.execute(
+            "INSERT INTO clip_proposals (project_id, title, start, end, hook, caption, evidence_quote, claim_status, reason, selected, render_status, output_path) VALUES (?, ?, 0, 1, ?, ?, ?, 'supported', ?, 1, 'ready', ?)",
+            (project_id, "Cached", "Hook", "Caption", "Quote", "Evidence", str(output)),
+        )
+        connection.commit()
+    monkeypatch.setattr(production, "_render_one", lambda *_: (_ for _ in ()).throw(AssertionError("cache should be reused")))
+    job_id = production.make_job(project_id, "render", "Queued")
+    production.run_render(project_id, job_id)
+    assert production.latest_job(project_id)["status"] == "done"
 
 
 def test_voiceover_uses_kokoro_voices_and_never_falls_back_to_source_audio(monkeypatch, tmp_path: Path) -> None:

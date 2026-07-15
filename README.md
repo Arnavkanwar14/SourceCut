@@ -39,6 +39,12 @@ The Create screen provides curated controls for platform, clip count, duration, 
 
 Quiet-gap trimming is shown as a non-destructive edit plan in this release so the original evidence timestamps stay exact. Voiceover is opt-in and runs locally through the quantized Kokoro ONNX model; it narrates the exact source evidence quote and never silently falls back to original audio. A failed local synthesis is reported on that clip instead.
 
+## Marketer handoff
+
+Finished projects have a dedicated handoff view with playable clips, hook, caption, source range, direct evidence link, explicit audio mode, render profile, individual downloads, and re-render controls. Download the ZIP to receive the ready selected MP4s plus matching JSON and Markdown evidence packages. Re-running a verified local output reuses the cached file; a server restart leaves interrupted work in a visible retryable state rather than reporting a false success.
+
+Run the short original fixture benchmark with `\.venv\Scripts\python.exe .\scripts\benchmark.py`. Its latest measured local timing and ASR caveat are recorded in `docs/benchmark.md`.
+
 ## Optional GPT-5.6 analysis
 
 The seed demo never calls a paid API. To enable structured GPT-5.6 candidate generation for uploaded transcripts only, set these values in a local `.env` file:

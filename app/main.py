@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from zipfile import ZIP_DEFLATED, ZipFile
 from contextlib import closing
 from html import escape
 from pathlib import Path
@@ -11,12 +12,13 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 
 from .export import build_package, markdown
-from .media import save_upload
+from .media import media_fingerprint, remove_media, save_upload
 from .production import (
     PLATFORMS,
     create_example_project,
     create_project,
     delete_project,
+    find_project_by_fingerprint,
     get_clips,
     get_project,
     get_segments,
@@ -25,6 +27,7 @@ from .production import (
     latest_job,
     list_projects,
     output_path,
+    recover_interrupted_jobs,
     refine_project_cuts,
     set_selected,
     settings_from_form,
@@ -88,6 +91,7 @@ def init_db() -> None:
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+    recover_interrupted_jobs()
 
 
 def get_claims() -> list[sqlite3.Row]:
@@ -130,6 +134,75 @@ def project_header(eyebrow: str, title: str, detail: str, stat: str = "", stat_l
 def format_time(seconds: float) -> str:
     minutes, remainder = divmod(max(0, int(seconds)), 60)
     return f"{minutes:02d}:{remainder:02d}"
+
+
+def audio_label(settings: dict[str, object]) -> str:
+    if settings.get("audio_mode") != "voiceover":
+        return "Original source audio"
+    voice = "Sarah" if settings.get("voice") == "af_sarah" else "Adam"
+    return f"Kokoro local voiceover - {voice}"
+
+
+def render_settings_label(settings: dict[str, object]) -> str:
+    platform = PLATFORMS[str(settings["platform"])]["label"]
+    captions = str(settings.get("captions", "bold")).replace("_", " ")
+    framing = str(settings.get("framing", "center")).replace("_", " ")
+    return f"{platform} | {settings['duration']}s | {captions} captions | {framing} framing"
+
+
+def project_package(project: sqlite3.Row, clips: list[sqlite3.Row]) -> dict[str, object]:
+    settings = json.loads(project["settings_json"])
+    segments = {row["id"]: row for row in get_segments(project["id"])}
+    selected = [clip for clip in clips if clip["selected"]]
+    return {
+        "project": project["name"],
+        "render_settings": {"profile": render_settings_label(settings), "audio": audio_label(settings)},
+        "clips": [
+            {
+                "title": clip["title"],
+                "source_range": {"start": format_time(clip["start"]), "end": format_time(clip["end"])},
+                "hook": clip["hook"],
+                "caption": clip["caption"],
+                "claim_status": clip["claim_status"],
+                "render_status": clip["render_status"],
+                "evidence": {
+                    "quote": clip["evidence_quote"],
+                    "segment_id": clip["evidence_segment_id"],
+                    "text": segments[clip["evidence_segment_id"]]["text"] if clip["evidence_segment_id"] in segments else "",
+                    "link": f"/projects/{project['id']}#segment-{clip['evidence_segment_id']}",
+                },
+            }
+            for clip in selected
+        ],
+    }
+
+
+def project_markdown(package: dict[str, object]) -> str:
+    settings = package["render_settings"]
+    lines = [f"# {package['project']}", "", f"**Render profile:** {settings['profile']}", f"**Audio:** {settings['audio']}", ""]
+    for clip in package["clips"]:
+        lines.extend([
+            f"## {clip['title']}",
+            f"**Source range:** {clip['source_range']['start']} - {clip['source_range']['end']}",
+            f"**Hook:** {clip['hook']}",
+            f"**Caption:** {clip['caption']}",
+            f"**Evidence:** {clip['evidence']['quote']} ({clip['evidence']['link']})",
+            "",
+        ])
+    return "\n".join(lines)
+
+
+def handoff_archive(project: sqlite3.Row, clips: list[sqlite3.Row], package: dict[str, object]) -> Path:
+    archive = ROOT / "data" / "outputs" / str(project["id"]) / "sourcecut-handoff.zip"
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    with ZipFile(archive, "w", ZIP_DEFLATED) as bundle:
+        bundle.writestr("evidence-package.json", json.dumps(package, indent=2))
+        bundle.writestr("evidence-package.md", project_markdown(package))
+        for clip in clips:
+            source = output_path(project["id"], clip["id"])
+            if clip["selected"] and source:
+                bundle.write(source, f"videos/{source.name}")
+    return archive
 
 
 def claim_html(claim: sqlite3.Row) -> str:
@@ -218,8 +291,13 @@ async def upload_media(
     except HTTPException as error:
         message = f'<p class="error" role="alert">{escape(str(error.detail))}</p>'
         return HTMLResponse(upload_form(message), status_code=error.status_code)
+    source_hash = media_fingerprint(path)
+    duplicate = find_project_by_fingerprint(source_hash)
+    if duplicate:
+        remove_media(path)
+        return RedirectResponse(f"/projects/{duplicate['id']}", status_code=303)
     settings = settings_from_form({"platform": platform, "clip_count": clip_count, "duration": duration, "captions": captions, "framing": framing, "audio_mode": audio_mode, "voice": voice, "proof_cards": proof_cards or "", "trim_silence": trim_silence or "", "focus": focus, "manual_clips": manual_clips})
-    project_id = create_project(file.filename or path.name, path, settings)
+    project_id = create_project(file.filename or path.name, path, settings, source_hash)
     start_analysis(project_id)
     return RedirectResponse(f"/projects/{project_id}", status_code=303)
 
@@ -242,7 +320,7 @@ def workspace(project: sqlite3.Row) -> str:
     clip_cards = "".join(clip_card(project["id"], clip) for clip in clips) or '<p class="empty-state">Clip proposals will appear after transcription finishes.</p>'
     selected = sum(bool(clip["selected"]) for clip in clips)
     ready = sum(clip["render_status"] == "ready" for clip in clips)
-    outputs = "".join(output_card(project["id"], clip) for clip in clips if clip["render_status"] == "ready") or '<p class="empty-state">Approved rendered clips will appear here.</p>'
+    outputs = "".join(output_card(project["id"], clip, settings) for clip in clips if clip["render_status"] == "ready") or '<p class="empty-state">Approved rendered clips will appear here.</p>'
     job_detail = escape(job["detail"] if job else "Waiting for the next production action.")
     header = project_header("PROJECT WORKSPACE", project["name"], f'''<span class="project-meta">{escape(PLATFORMS[settings["platform"]]["label"])} &middot; {settings["duration"]} seconds &middot; {settings["clip_count"]} requested clips</span>''', f"{selected}/{len(clips)}", "clips selected")
     job_progress = int(job["progress"] if job else 0)
@@ -264,8 +342,10 @@ def clip_card(project_id: int, clip: sqlite3.Row) -> str:
     return f'''<article class="clip-proposal {'chosen' if selected else ''} {escape(clip["claim_status"])}" data-clip-card><div class="clip-head"><span class="status">{escape(status_text)}</span><a class="clip-time" href="#segment-{clip["evidence_segment_id"]}" data-evidence-link data-seek="{clip["start"]}">{time}</a></div><div class="clip-content"><h3>{escape(clip["title"])}</h3><p class="clip-hook">{escape(clip["hook"])}</p><p class="clip-caption"><span>POST CAPTION</span>{escape(clip["caption"])}</p><p class="reason">{escape(clip["reason"])}</p></div><div class="clip-actions"><a class="clip-preview" href="#segment-{clip["evidence_segment_id"]}" data-evidence-link data-seek="{clip["start"]}">Source evidence preview</a>{selection}<span class="render-state">{escape(clip["render_status"])}</span></div>{error}</article>'''
 
 
-def output_card(project_id: int, clip: sqlite3.Row) -> str:
-    return f'''<article class="output-card"><video controls preload="metadata"><source src="/projects/{project_id}/outputs/{clip["id"]}" type="video/mp4"></video><div><span class="status">ready</span><h3>{escape(clip["title"])}</h3><p>{format_time(clip["start"])}&ndash;{format_time(clip["end"])}</p><a class="review-link" href="/projects/{project_id}/outputs/{clip["id"]}" download>Download MP4</a></div></article>'''
+def output_card(project_id: int, clip: sqlite3.Row, settings: dict[str, object]) -> str:
+    evidence = f'/projects/{project_id}#segment-{clip["evidence_segment_id"]}'
+    retry = f'''<form method="post" action="/projects/{project_id}/clips/{clip["id"]}/retry" data-action-form><button class="secondary">Re-render</button></form>'''
+    return f'''<article class="output-card"><video controls preload="metadata"><source src="/projects/{project_id}/outputs/{clip["id"]}" type="video/mp4"></video><div><span class="status">ready</span><h3>{escape(clip["title"])}</h3><p class="output-hook">{escape(clip["hook"])}</p><p class="output-caption"><span>CAPTION</span>{escape(clip["caption"])}</p><dl class="output-details"><div><dt>Source</dt><dd>{format_time(clip["start"])}&ndash;{format_time(clip["end"])}</dd></div><div><dt>Audio</dt><dd>{escape(audio_label(settings))}</dd></div><div><dt>Render</dt><dd>{escape(render_settings_label(settings))}</dd></div></dl><a class="output-evidence" href="{evidence}">View source evidence</a><div class="output-actions"><a class="review-link" href="/projects/{project_id}/outputs/{clip["id"]}" download>Download MP4</a>{retry}<a class="output-handoff" href="/projects/{project_id}/handoff">Open handoff</a></div></div></article>'''
 
 
 @app.get("/projects/{project_id}", response_class=HTMLResponse)
@@ -311,7 +391,8 @@ def project_workspace_fragments(project_id: int) -> JSONResponse:
     render_action = f'''<div class="proposal-actions"><form method="post" action="/projects/{project_id}/refine-cuts" data-action-form><button class="secondary" {'disabled' if processing else ''}>Rebuild clip picks</button></form><form method="post" action="/projects/{project_id}/render" data-action-form><button data-render-button {'disabled' if not selected or processing else ''}>Render {selected} selected clip{'s' if selected != 1 else ''}</button></form></div>'''
     selection_summary = f'''<div class="selection-summary" aria-live="polite"><span><strong data-selected-count>{selected}</strong> selected for render</span><span><strong data-ready-count>{ready}</strong> finished outputs</span></div>'''
     clip_cards = "".join(clip_card(project_id, clip) for clip in clips) or '<p class="empty-state">Clip proposals will appear after transcription finishes.</p>'
-    outputs = "".join(output_card(project_id, clip) for clip in clips if clip["render_status"] == "ready") or '<p class="empty-state">Approved rendered clips will appear here.</p>'
+    settings = json.loads(project["settings_json"])
+    outputs = "".join(output_card(project_id, clip, settings) for clip in clips if clip["render_status"] == "ready") or '<p class="empty-state">Approved rendered clips will appear here.</p>'
     return JSONResponse({"render_actions": render_action, "selection_summary": selection_summary, "clip_cards": clip_cards, "outputs": outputs, "selected": selected, "clip_count": len(clips), "ready": ready})
 
 
@@ -359,6 +440,18 @@ def render_project(project_id: int, request: Request) -> Response:
     return RedirectResponse(f"/projects/{project_id}", status_code=303)
 
 
+@app.post("/projects/{project_id}/clips/{clip_id}/retry")
+def retry_clip(project_id: int, clip_id: int, request: Request) -> Response:
+    clip = next((item for item in get_clips(project_id) if item["id"] == clip_id), None)
+    if not clip or not clip["selected"] or clip["claim_status"] != "supported":
+        raise HTTPException(status_code=422, detail="Only selected, evidence-supported clips can be rendered.")
+    job_id = start_render(project_id, {clip_id})
+    if "application/json" in request.headers.get("accept", ""):
+        job = latest_job(project_id)
+        return JSONResponse({"action": "render_started", "job": dict(job) if job and job["id"] == job_id else None}, status_code=202)
+    return RedirectResponse(f"/projects/{project_id}", status_code=303)
+
+
 @app.get("/projects/{project_id}/outputs/{clip_id}")
 def project_output(project_id: int, clip_id: int) -> FileResponse:
     path = output_path(project_id, clip_id)
@@ -372,22 +465,40 @@ def project_export(project_id: int) -> JSONResponse:
     project = get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    segments = {row["id"]: row for row in get_segments(project_id)}
-    clips = [clip for clip in get_clips(project_id) if clip["selected"]]
-    package = {
-        "project": project["name"],
-        "status": project["status"],
-        "clips": [
-            {
-                "title": clip["title"], "source_range": {"start": format_time(clip["start"]), "end": format_time(clip["end"])},
-                "hook": clip["hook"], "caption": clip["caption"], "claim_status": clip["claim_status"],
-                "evidence": {"quote": clip["evidence_quote"], "segment_id": clip["evidence_segment_id"], "text": segments[clip["evidence_segment_id"]]["text"] if clip["evidence_segment_id"] in segments else ""},
-                "render_status": clip["render_status"],
-            }
-            for clip in clips
-        ],
-    }
+    package = project_package(project, get_clips(project_id))
     return JSONResponse(package, headers={"Content-Disposition": f'attachment; filename="sourcecut-project-{project_id}.json"'})
+
+
+@app.get("/projects/{project_id}/export.md")
+def project_export_markdown(project_id: int) -> PlainTextResponse:
+    project = get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    body = project_markdown(project_package(project, get_clips(project_id)))
+    return PlainTextResponse(body, media_type="text/markdown", headers={"Content-Disposition": f'attachment; filename="sourcecut-project-{project_id}.md"'})
+
+
+@app.get("/projects/{project_id}/handoff.zip")
+def project_handoff_zip(project_id: int) -> FileResponse:
+    project = get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    clips = get_clips(project_id)
+    archive = handoff_archive(project, clips, project_package(project, clips))
+    return FileResponse(archive, media_type="application/zip", filename=f"sourcecut-handoff-{project_id}.zip", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/projects/{project_id}/handoff", response_class=HTMLResponse)
+def project_handoff(project_id: int) -> str:
+    project = get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    settings = json.loads(project["settings_json"])
+    ready = [clip for clip in get_clips(project_id) if clip["selected"] and clip["render_status"] == "ready"]
+    cards = "".join(output_card(project_id, clip, settings) for clip in ready) or '<p class="empty-state">Finish at least one selected clip to create a handoff package.</p>'
+    header = project_header("MARKETER HANDOFF", project["name"], "Review each finished clip, take its caption and evidence link, or download the complete local package.", f"{len(ready)}", "videos ready")
+    actions = f'''<section class="handoff-actions" data-reveal><div><p class="eyebrow">DELIVERABLES</p><h2>Everything needed to publish with context.</h2><p>{escape(render_settings_label(settings))} &middot; {escape(audio_label(settings))}</p></div><div><a class="review-link" href="/projects/{project_id}/handoff.zip">Download ZIP</a><a class="review-link secondary-link" href="/projects/{project_id}/export.json">Evidence JSON</a><a class="review-link secondary-link" href="/projects/{project_id}/export.md">Evidence Markdown</a><a class="output-handoff" href="/projects/{project_id}">Back to production</a></div></section>'''
+    return document(f"{project['name']} handoff", "Marketer handoff", f"/projects/{project_id}", "Production desk", "Ready", header + actions + f'<section class="outputs-library" data-reveal><div class="section-heading"><div><p class="eyebrow">FINISHED CLIPS</p><h2>Review, download, publish.</h2></div></div><div class="output-grid">{cards}</div></section>')
 
 
 @app.get("/review", response_class=HTMLResponse)

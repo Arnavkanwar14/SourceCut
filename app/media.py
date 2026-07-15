@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import hashlib
 import shutil
 import subprocess
 import uuid
@@ -26,6 +27,14 @@ def inspect_media(source: Path) -> float:
         raise RuntimeError("SourceCut could not inspect this media file. Choose a playable MP4, MP3, or WAV source.")
     hours, minutes, seconds = match.groups()
     return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+
+
+def media_fingerprint(source: Path) -> str:
+    digest = hashlib.sha256()
+    with source.open("rb") as media:
+        while chunk := media.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 async def save_upload(upload: UploadFile, upload_dir: Path) -> Path:
