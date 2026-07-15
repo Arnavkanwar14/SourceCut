@@ -65,12 +65,14 @@
     if (form.dataset.bound === "true") return;
     form.dataset.bound = "true";
     form.addEventListener("submit", async (event) => {
-      event.preventDefault();
       const button = form.querySelector("button");
       if (!button) return;
       form.classList.add("form-pending");
       button.disabled = true;
       const originalLabel = button.textContent;
+      const asyncAction = /^\/projects\/\d+\/(?:render|refine-cuts|clips\/\d+\/retry)$/.test(new URL(form.action).pathname);
+      if (!asyncAction) return;
+      event.preventDefault();
       button.textContent = button.classList.contains("secondary") ? "Updating..." : "Starting render...";
       try {
         const response = await fetch(form.action, {
