@@ -184,7 +184,11 @@ def project_package(project: sqlite3.Row, clips: list[sqlite3.Row]) -> dict[str,
     selected = [clip for clip in clips if clip["selected"]]
     return {
         "project": project["name"],
-        "render_settings": {"profile": render_settings_label(settings), "audio": audio_label(settings)},
+        "render_settings": {
+            "profile": render_settings_label(settings),
+            "audio": audio_label(settings),
+            "proposal_provider": project["proposal_provider"],
+        },
         "clips": [
             {
                 "title": clip["title"],
@@ -207,7 +211,7 @@ def project_package(project: sqlite3.Row, clips: list[sqlite3.Row]) -> dict[str,
 
 def project_markdown(package: dict[str, object]) -> str:
     settings = package["render_settings"]
-    lines = [f"# {package['project']}", "", f"**Render profile:** {settings['profile']}", f"**Audio:** {settings['audio']}", ""]
+    lines = [f"# {package['project']}", "", f"**Render profile:** {settings['profile']}", f"**Audio:** {settings['audio']}", f"**Proposal source:** {settings['proposal_provider']}", ""]
     for clip in package["clips"]:
         lines.extend([
             f"## {clip['title']}",
@@ -282,7 +286,7 @@ def home() -> str:
         for row in projects
     ) or '<p class="empty-state">No uploaded projects yet. Start with a local recording or open the seeded review below.</p>'
     seed = '''<article class="project-card seed-card" data-reveal><div class="project-card-top"><span class="status">seeded demo</span><span>no key needed</span></div><h2>ApexFlow product webinar</h2><p>See an unsupported marketing claim become a timestamp-backed rewrite.</p><a class="review-link" href="/review">Open evidence review</a></article>'''
-    example = '''<article class="project-card example-card" data-reveal><div class="project-card-top"><span class="status">example video</span><span>22 seconds</span></div><h2>SourceCut production example</h2><p>Open a prepared player, transcript, clip proposals, and render-ready source.</p><div class="example-actions"><a href="/static/sourcecut-production-example.mp4" download>Download MP4</a><form method="post" action="/examples/production"><button>Load project</button></form></div></article>'''
+    example = '''<article class="project-card example-card" data-reveal><div class="project-card-top"><span class="status">judge demo</span><span>no key needed</span></div><h2>SourceCut production example</h2><p>Open source playback, evidence-backed proposals, and a finished original output with its handoff package.</p><div class="example-actions"><form method="post" action="/examples/production"><button>Open Judge Demo</button></form></div></article>'''
     header = project_header("WORK & PRODUCTIVITY", "Turn recordings into evidence-backed social clips.", "SourceCut helps marketing teams choose moments, preserve the source behind every claim, and produce reviewable videos without losing context.", "3 steps", "source · review · render")
     content = f'''{header}<section class="dashboard-intro" data-reveal><div><p class="eyebrow">PRODUCTION DESK</p><h2>From source to a confident handoff.</h2></div><ol><li><strong>1</strong><span>Upload a recording and choose its social edit preset.</span></li><li><strong>2</strong><span>Review proposed clips against the source transcript.</span></li><li><strong>3</strong><span>Render selected clips and export their evidence package.</span></li></ol><a class="nav-action" href="/upload">Create a project</a></section><section class="project-library" data-reveal><div class="section-heading"><div><p class="eyebrow">PROJECTS</p><h2>Production library</h2></div><a href="/upload">New project</a></div><div class="project-grid">{seed}{example}{project_cards}</div></section><section id="outputs" class="dashboard-note" data-reveal><p class="eyebrow">WHAT MAKES IT DIFFERENT</p><p>Every selected clip carries its original timestamp and supporting transcript quote. SourceCut can accelerate production, but it never turns a weak claim into an approved one.</p></section>'''
     return document("Projects", "Evidence-backed production", "/upload", "Create project", "Local mode", content)
@@ -295,7 +299,7 @@ def production_options() -> str:
 @app.get("/upload", response_class=HTMLResponse)
 def upload_form(message: str = "") -> str:
     header = project_header("LOCAL PRODUCTION", "Turn a source recording into a clip desk.", "Choose a platform preset, then SourceCut will produce timestamped, evidence-linked clip proposals for your review.")
-    example = '''<section class="example-callout" data-reveal><div><p class="eyebrow">NO FILE READY?</p><h2>Use the original SourceCut example.</h2><p>Download the short MP4, or open it as a prepared production project with transcript evidence and selectable clips.</p></div><div class="example-actions"><a class="review-link secondary-link" href="/static/sourcecut-production-example.mp4" download>Download example MP4</a><form method="post" action="/examples/production"><button>Load example project</button></form></div></section>'''
+    example = '''<section class="example-callout" data-reveal><div><p class="eyebrow">NO FILE READY?</p><h2>Open the Judge Demo.</h2><p>It loads an original source, transcript evidence, selectable proposals, a finished vertical output, and its marketer handoff without an API key.</p></div><div class="example-actions"><form method="post" action="/examples/production"><button>Open Judge Demo</button></form></div></section>'''
     return document("Create project", "Local production", "/", "View projects", "CPU mode", header + production_options() + example + message)
 
 
@@ -350,13 +354,14 @@ def workspace(project: sqlite3.Row) -> str:
     ready = sum(clip["render_status"] == "ready" for clip in clips)
     outputs = "".join(output_card(project["id"], clip, settings) for clip in clips if clip["render_status"] == "ready") or '<p class="empty-state">Approved rendered clips will appear here.</p>'
     job_detail = escape(job["detail"] if job else "Waiting for the next production action.")
+    provider = escape(project["proposal_provider"])
     header = project_header("PROJECT WORKSPACE", project["name"], f'''<span class="project-meta">{escape(PLATFORMS[settings["platform"]]["label"])} &middot; {settings["duration"]} seconds &middot; {settings["clip_count"]} requested clips</span>''', f"{selected}/{len(clips)}", "clips selected")
     job_progress = int(job["progress"] if job else 0)
     job_timing = f'''<span data-job-timing>{escape(job["started_at"] or "Waiting to start")}</span>''' if job else ""
     progress = f'''<section class="job-panel" data-job-status="/projects/{project["id"]}/status" data-workspace-fragments="/projects/{project["id"]}/workspace-fragments" data-reveal><div><p class="eyebrow">LOCAL JOB</p><h2 data-job-stage>{escape(job["stage"] if job else "Ready")}</h2><p data-job-detail>{job_detail}</p><div class="job-meter" aria-label="Job progress"><span data-job-progress style="width: {job_progress}%"></span></div><p class="job-timing">{job_timing}</p></div><span class="status" data-job-state>{escape(job["status"] if job else status)}</span></section>'''
     render_action = f'''<div class="proposal-actions"><form method="post" action="/projects/{project["id"]}/refine-cuts" data-action-form><button class="secondary" {'disabled' if processing else ''}>Rebuild clip picks</button></form><form method="post" action="/projects/{project["id"]}/render" data-action-form><button data-render-button {'disabled' if not selected or processing else ''}>Render {selected} selected clip{'s' if selected != 1 else ''}</button></form></div>'''
     selection_summary = f'''<div class="selection-summary" aria-live="polite"><span><strong data-selected-count>{selected}</strong> selected for render</span><span><strong data-ready-count>{ready}</strong> finished outputs</span></div>'''
-    desk = f'''{progress}<section class="production-workspace" data-reveal><aside class="source-column"><div class="panel-heading"><p class="eyebrow">SOURCE PREVIEW</p><span>Click a proposal to seek</span></div>{player}<p class="source-note">Full-frame source stays linked to each proposal. Use the timestamped transcript to check context before selecting.</p></aside><section id="clip-review" class="proposal-column"><div class="section-heading"><div><p class="eyebrow">CLIP REVIEW</p><h2>Review before render.</h2></div><div data-render-actions>{render_action}</div></div><div data-selection-summary>{selection_summary}</div><div class="clip-proposals" data-clip-proposals>{clip_cards}</div></section><aside class="transcript-column"><div class="panel-heading"><p class="eyebrow">SOURCE TRANSCRIPT</p><span>Click to seek</span></div><ol>{transcript}</ol></aside></section><section id="outputs" class="outputs-library" data-reveal><div class="section-heading"><div><p class="eyebrow">OUTPUTS</p><h2>Rendered production files</h2></div><a href="/projects/{project["id"]}/export.json">Export package</a></div><div class="output-grid" data-output-grid>{outputs}</div></section>'''
+    desk = f'''{progress}<p class="proposal-provider" data-reveal><span>PROPOSAL SOURCE</span>{provider}</p><section class="production-workspace" data-reveal><aside class="source-column"><div class="panel-heading"><p class="eyebrow">SOURCE PREVIEW</p><span>Click a proposal to seek</span></div>{player}<p class="source-note">Full-frame source stays linked to each proposal. Use the timestamped transcript to check context before selecting.</p></aside><section id="clip-review" class="proposal-column"><div class="section-heading"><div><p class="eyebrow">CLIP REVIEW</p><h2>Review before render.</h2></div><div data-render-actions>{render_action}</div></div><div data-selection-summary>{selection_summary}</div><div class="clip-proposals" data-clip-proposals>{clip_cards}</div></section><aside class="transcript-column"><div class="panel-heading"><p class="eyebrow">SOURCE TRANSCRIPT</p><span>Click to seek</span></div><ol>{transcript}</ol></aside></section><section id="outputs" class="outputs-library" data-reveal><div class="section-heading"><div><p class="eyebrow">OUTPUTS</p><h2>Rendered production files</h2></div><a href="/projects/{project["id"]}/export.json">Export package</a></div><div class="output-grid" data-output-grid>{outputs}</div></section>'''
     return document(project["name"], "Production workspace", "/upload", "New project", status, header + desk)
 
 
@@ -525,7 +530,7 @@ def project_handoff(project_id: int) -> str:
     ready = [clip for clip in get_clips(project_id) if clip["selected"] and clip["render_status"] == "ready"]
     cards = "".join(output_card(project_id, clip, settings) for clip in ready) or '<p class="empty-state">Finish at least one selected clip to create a handoff package.</p>'
     header = project_header("MARKETER HANDOFF", project["name"], "Review each finished clip, take its caption and evidence link, or download the complete local package.", f"{len(ready)}", "videos ready")
-    actions = f'''<section class="handoff-actions" data-reveal><div><p class="eyebrow">DELIVERABLES</p><h2>Everything needed to publish with context.</h2><p>{escape(render_settings_label(settings))} &middot; {escape(audio_label(settings))}</p></div><div><a class="review-link" href="/projects/{project_id}/handoff.zip">Download ZIP</a><a class="review-link secondary-link" href="/projects/{project_id}/export.json">Evidence JSON</a><a class="review-link secondary-link" href="/projects/{project_id}/export.md">Evidence Markdown</a><a class="output-handoff" href="/projects/{project_id}">Back to production</a></div></section>'''
+    actions = f'''<section class="handoff-actions" data-reveal><div><p class="eyebrow">DELIVERABLES</p><h2>Everything needed to publish with context.</h2><p>{escape(render_settings_label(settings))} &middot; {escape(audio_label(settings))}</p><p class="handoff-provider">Proposal source: {escape(project["proposal_provider"])}</p></div><div><a class="review-link" href="/projects/{project_id}/handoff.zip">Download ZIP</a><a class="review-link secondary-link" href="/projects/{project_id}/export.json">Evidence JSON</a><a class="review-link secondary-link" href="/projects/{project_id}/export.md">Evidence Markdown</a><a class="output-handoff" href="/projects/{project_id}">Back to production</a></div></section>'''
     return document(f"{project['name']} handoff", "Marketer handoff", f"/projects/{project_id}", "Production desk", "Ready", header + actions + f'<section class="outputs-library" data-reveal><div class="section-heading"><div><p class="eyebrow">FINISHED CLIPS</p><h2>Review, download, publish.</h2></div></div><div class="output-grid">{cards}</div></section>')
 
 

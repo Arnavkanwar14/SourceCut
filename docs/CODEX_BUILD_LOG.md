@@ -17,7 +17,7 @@ SourceCut is a Work & Productivity review copilot for marketing teams. The team 
 
 ## Runtime model status
 
-The project was built in Codex during Build Week. The submitted seed flow is deterministic and does not call an external model. GPT-5.6 structured transcript analysis is available only when a local key and explicit feature flag are configured; all returned candidates are revalidated locally.
+The project was built in Codex during Build Week. The submitted Judge Demo is deterministic and does not call an external model. GPT-5.6 structured transcript analysis is available for uploaded projects only when a local key and explicit feature flag are configured; all returned candidates are revalidated locally and provenance is shown in the workspace and handoff.
 
 ## Required submission evidence
 

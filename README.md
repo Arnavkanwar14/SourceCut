@@ -24,6 +24,10 @@ python -m venv .venv
 
 Then open `http://127.0.0.1:8000`.
 
+## Judge Quickstart
+
+Run the command above, then choose **Open Judge Demo** on the dashboard. It opens an original source recording with transcript evidence, reviewable proposals, one finished vertical clip, and its marketer handoff package. This path is fully local and requires no API key, model download, account, or upload.
+
 ## Security model
 
 SourceCut is a single-user local workspace and its demo command binds to `127.0.0.1` only. State-changing browser requests reject cross-site origins, and the app sends local-only content, framing, MIME-sniffing, and referrer protections. Do not expose this instance on a LAN or public host: it has no accounts, authentication, or per-user project ownership.
@@ -51,7 +55,9 @@ Run the short original fixture benchmark with `\.venv\Scripts\python.exe .\scrip
 
 ## Optional GPT-5.6 analysis
 
-The seed demo never calls a paid API. To enable structured GPT-5.6 candidate generation for uploaded transcripts only, set these values in a local `.env` file:
+The Judge Demo never calls a paid API. For uploaded projects, SourceCut can use GPT-5.6 to propose content moments only when explicitly enabled. Every proposal is then checked locally against transcript IDs, exact quoted wording, and timestamp bounds before it can be selected for render. If the model is disabled, unavailable, or produces no usable candidates, SourceCut visibly reports and uses its deterministic local fallback.
+
+To enable the optional provider, set these values in a local `.env` file:
 
 ```text
 OPENAI_API_KEY=your_key_here
@@ -59,7 +65,7 @@ OPENAI_MODEL=gpt-5.6
 SOURCECUT_LIVE_ANALYSIS=1
 ```
 
-SourceCut requests structured output through the Responses API, then reruns every model-proposed claim through the local transcript validator. If the key is missing, disabled, or a model request fails, the upload review falls back to deterministic local candidates.
+SourceCut requests structured output through the Responses API and records either `GPT-5.6 proposals, evidence verified locally` or `Local deterministic fallback` in the workspace and handoff. API keys remain local and are never rendered or exported.
 
 ## What the checker guarantees
 
@@ -80,7 +86,7 @@ The suite covers the labelled evidence cases in `tests/fixtures/evidence_cases.j
 
 ## Build Week collaboration
 
-SourceCut was built in Codex during OpenAI Build Week. Codex helped implement the FastAPI workflow, local transcription integration, deterministic evidence validation, reviewer UI, original product visual, tests, and submission documentation. Human decisions set the product scope, seed scenario, review policy, and visual direction.
+SourceCut was built in Codex during OpenAI Build Week. Codex helped implement the FastAPI workflow, local transcription integration, GPT-5.6 proposal guardrails, deterministic evidence validation, reviewer UI, original product visual, tests, and submission documentation. Human decisions set the product scope, seed scenario, review policy, and visual direction.
 
 The application stays usable without keys while Build Week credits are unavailable. GPT-5.6 is an optional, explicitly enabled upload-analysis provider; the seeded judge flow stays deterministic and key-free.
 
@@ -89,7 +95,8 @@ Before submitting, add the required Build Week `/feedback` session ID here: `TBD
 ## Submission notes
 
 - Category: Work & Productivity.
-- Seeded demo: free, local, and no-sign-in.
+- Judge Demo: free, local, and no-sign-in.
+- Public repository: https://github.com/Arnavkanwar14/SourceCut
 - Product, transcript, UI asset, and demo scenario: original or created specifically for SourceCut. See `ASSET_NOTES.md`.
 - Direct dependency notices: `THIRD_PARTY_NOTICES.md`.
 - Demo narration: `docs/demo-script.md`.

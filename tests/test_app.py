@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app import main, production
 from app.main import app
+from app.review import Candidate, Evidence, TranscriptSegment, review_claim
 
 
 client = TestClient(app)
@@ -94,6 +95,42 @@ def test_example_project_opens_with_player_and_proposals() -> None:
     assert "Source evidence" in response.text
     assert "selected for render" in response.text
     assert "Rebuild clip picks" in response.text
+    assert "Local deterministic fallback" in response.text
+    assert "Rendered production files" in response.text
+    assert "/outputs/" in response.text
+
+
+def test_gpt_proposals_are_persisted_but_still_evidence_gated(monkeypatch, tmp_path: Path) -> None:
+    segments = [TranscriptSegment(id="segment-1", start=1, end=5, text="In a pilot, teams reduced handoff time by up to 40 percent.")]
+    evidence = Evidence(segment_ids=["segment-1"], quote=segments[0].text, start=1, end=5)
+    risky = "Every team reduced handoff time by 40 percent."
+    candidate = Candidate(title="Risky promise", draft=risky, claim=review_claim(risky, evidence, segments))
+    monkeypatch.setattr(production, "generate_candidates", lambda _: [candidate])
+    source = tmp_path / "model-demo.mp4"
+    source.write_bytes(b"video")
+    project_id = production.create_project("Model demo", source, production.settings_from_form({}))
+    production._insert_proposals(project_id, segments, production.settings_from_form({}))
+
+    project = production.get_project(project_id)
+    clip = production.get_clips(project_id)[0]
+    assert project["proposal_provider"] == "GPT-5.6 proposals, evidence verified locally"
+    assert clip["claim_status"] == "unsupported"
+    assert not production.set_selected(project_id, clip["id"], True)
+
+
+def test_local_fallback_and_manual_ranges_are_labelled(monkeypatch, tmp_path: Path) -> None:
+    segments = [TranscriptSegment(id="segment-1", start=1, end=5, text="Teams review product claims before publishing.")]
+    monkeypatch.setattr(production, "generate_candidates", lambda _: None)
+    source = tmp_path / "fallback-demo.mp4"
+    source.write_bytes(b"video")
+    project_id = production.create_project("Fallback demo", source, production.settings_from_form({}))
+    production._insert_proposals(project_id, segments, production.settings_from_form({}))
+    assert production.get_project(project_id)["proposal_provider"] == "Local deterministic fallback"
+
+    manual = production.settings_from_form({"manual_clips": "00:01-00:04"})
+    production._insert_proposals(project_id, segments, manual)
+    assert production.get_project(project_id)["proposal_provider"] == "Manual source ranges, evidence review required"
+    assert production.get_clips(project_id)[0]["claim_status"] == "needs_review"
 
 
 def test_project_can_be_deleted_from_library(tmp_path: Path) -> None:

@@ -2,30 +2,30 @@
 
 Target duration: 2 minutes 40 seconds. Record the submitted commit only, with audible narration.
 
-## 0:00-0:20 - The problem
+## 0:00-0:18 - The problem
 
-Open the seeded SourceCut review. Say: "Marketing teams turn long recordings into posts quickly, but a stronger-sounding claim can quietly lose the qualifier that made it true. SourceCut keeps each publishable line tied to its source evidence."
+Open the dashboard and select **Open Judge Demo**. Say: "Marketing teams have plenty of tools to cut videos, but they still need to prove that the hook and caption do not overstate the source. SourceCut turns a recording into publishable social clips without dropping that evidence."
 
-## 0:20-0:50 - The red flag
+## 0:18-0:45 - The production desk
 
-Point to `Customers save 40%.` Say: "This draft is unsupported. The webinar only says that a 12-customer pilot reduced handoff time by up to 40 percent. It does not support a promise for all customers."
+Show source player, transcript, proposal source badge, and proposal cards. Say: "This is a complete production desk: source playback on the left, timestamped transcript on the right, and clip proposals in the middle. The Judge Demo is local and key-free, so it works immediately from a fresh clone."
 
-## 0:50-1:15 - The evidence interaction
+## 0:45-1:12 - The evidence gate
 
-Click `Evidence: s1, s2`. Let the transcript focus animate. Say: "The review is not just a model opinion. SourceCut checks the transcript IDs, exact quoted source, and timestamp bounds before a claim can be treated as supported."
+Open a proposal's source evidence and show the transcript focus. Say: "A model suggestion is never enough here. SourceCut checks the transcript ID, exact quote, and timestamp bounds. It also flags wording that turns a small pilot or an up-to result into a broad marketing promise."
 
-## 1:15-1:45 - Reviewer action
+## 1:12-1:38 - Output and handoff
 
-Open `Edit rewrite`. Enter: `Pilot teams reduced handoff time by up to 40%.` Save and recheck, then approve it. Say: "A reviewer can keep the marketing intent, but SourceCut rechecks every edit. An unsupported or ambiguous rewrite stays blocked from approval."
+Show the finished vertical output, then open its handoff page. Say: "Once a reviewer selects a supported clip, SourceCut renders it locally. The handoff keeps the playable video, caption, hook, source range, audio mode, and direct evidence link together, so the next marketer does not have to reconstruct the context."
 
-## 1:45-2:05 - Export
+## 1:38-2:03 - GPT-5.6 with a guardrail
 
-Show the approved package controls. Open the JSON or Markdown export. Say: "The export contains the approved post copy, clip range, and the evidence timestamps needed for the next reviewer."
+Point to the proposal-source label. Say: "For uploaded projects, GPT-5.6 can propose three content moments through a guarded, opt-in path. SourceCut immediately validates every returned claim. If GPT-5.6 is unavailable, the interface says it used the deterministic local fallback instead. Either way, unsupported copy cannot enter the render queue."
 
-## 2:05-2:30 - How it was built
+## 2:03-2:32 - How it was built
 
-Say: "I built SourceCut with Codex during OpenAI Build Week. Codex helped implement the FastAPI app, local transcription, deterministic evidence checks, reviewer workflow, tests, and this UI. The seed demo is key-free so judges can run it immediately."
+Say: "I built SourceCut with Codex during OpenAI Build Week. Codex helped implement the FastAPI and SQLite workflow, local media pipeline, GPT-5.6 proposal integration, deterministic evidence checks, FFmpeg rendering, test suite, and this production interface."
 
-## 2:30-2:40 - Honest scope
+## 2:32-2:40 - Honest scope
 
-Say: "SourceCut evaluates support in the shown transcript. It is not a legal or factual certification. The next step is an optional GPT-5.6 provider once Build Week credits are available."
+Say: "SourceCut verifies support in the shown transcript. It is not legal or factual certification, but it makes a marketing review decision inspectable before content gets published."

@@ -11,7 +11,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .media import ffmpeg_exe, inspect_media, media_fingerprint
-from .review import TranscriptSegment, local_candidates
+from .llm import generate_candidates
+from .review import Candidate, TranscriptSegment, local_candidates
 from .transcription import transcribe_media
 
 
@@ -22,6 +23,7 @@ KOKORO_DIR = ROOT / "data" / "models" / "kokoro"
 KOKORO_MODEL = KOKORO_DIR / "kokoro-v1.0.int8.onnx"
 KOKORO_VOICES = KOKORO_DIR / "voices-v1.0.bin"
 EXAMPLE_SOURCE = ROOT / "static" / "sourcecut-production-example.mp4"
+JUDGE_OUTPUT = ROOT / "static" / "sourcecut-judge-output.mp4"
 WORKER_LOCK = threading.Lock()
 KOKORO_ENGINE: object | None = None
 PLATFORMS = {
@@ -64,6 +66,7 @@ def init_db() -> None:
                 status TEXT NOT NULL DEFAULT 'queued',
                 settings_json TEXT NOT NULL,
                 error TEXT NOT NULL DEFAULT '',
+                proposal_provider TEXT NOT NULL DEFAULT 'Local deterministic fallback',
                 created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS project_segments (
@@ -121,6 +124,8 @@ def init_db() -> None:
         project_columns = {row["name"] for row in connection.execute("PRAGMA table_info(projects)")}
         if "source_fingerprint" not in project_columns:
             connection.execute("ALTER TABLE projects ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT ''")
+        if "proposal_provider" not in project_columns:
+            connection.execute("ALTER TABLE projects ADD COLUMN proposal_provider TEXT NOT NULL DEFAULT 'Local deterministic fallback'")
         connection.commit()
 
 
@@ -179,6 +184,7 @@ def create_example_project() -> int:
         raise FileNotFoundError("The SourceCut example video is missing.")
     existing = find_project_by_fingerprint(media_fingerprint(EXAMPLE_SOURCE))
     if existing:
+        _prepare_judge_output(int(existing["id"]))
         return int(existing["id"])
     settings = settings_from_form({"platform": "vertical", "clip_count": "3", "duration": "30", "captions": "bold", "proof_cards": "on"})
     project_id = create_project("SourceCut production example", EXAMPLE_SOURCE, settings)
@@ -194,7 +200,29 @@ def create_example_project() -> int:
         for row in get_segments(project_id)
     ]
     _insert_proposals(project_id, segments, settings)
+    _prepare_judge_output(project_id)
     return project_id
+
+
+def _prepare_judge_output(project_id: int) -> None:
+    """Expose one original, pre-rendered output so the no-key judge path has no wait."""
+    if not JUDGE_OUTPUT.is_file():
+        return
+    clips = get_clips(project_id)
+    if not clips:
+        return
+    clip_id = int(clips[0]["id"])
+    with closing(db()) as connection:
+        connection.execute(
+            """UPDATE clip_proposals
+               SET selected = CASE WHEN id = ? THEN 1 ELSE selected END,
+                   render_status = CASE WHEN id = ? THEN 'ready' ELSE render_status END,
+                   output_path = CASE WHEN id = ? THEN ? ELSE output_path END,
+                   error = CASE WHEN id = ? THEN '' ELSE error END
+               WHERE project_id = ?""",
+            (clip_id, clip_id, clip_id, str(JUDGE_OUTPUT), clip_id, project_id),
+        )
+        connection.commit()
 
 
 def get_project(project_id: int) -> sqlite3.Row | None:
@@ -311,11 +339,19 @@ def parse_manual_ranges(value: str) -> list[tuple[float, float]]:
     return ranges[:5]
 
 
+def proposal_candidates(segments: list[TranscriptSegment]) -> tuple[list[Candidate], str]:
+    """Use GPT-5.6 only when configured; all results still pass local evidence review."""
+    model_candidates = generate_candidates(segments)
+    if model_candidates:
+        return model_candidates, "GPT-5.6 proposals, evidence verified locally"
+    return local_candidates(segments), "Local deterministic fallback"
+
+
 def _insert_proposals(project_id: int, segments: list[TranscriptSegment], settings: dict[str, object]) -> None:
-    candidates = local_candidates(segments)
     manual = parse_manual_ranges(str(settings["manual_clips"]))
     planned: list[tuple[str, float, float, str, str, int | None, str, str, str]] = []
     if manual:
+        provider = "Manual source ranges, evidence review required"
         for index, (start, end) in enumerate(manual, 1):
             evidence = next((segment for segment in segments if segment.start <= end and segment.end >= start), None)
             if not evidence:
@@ -326,6 +362,7 @@ def _insert_proposals(project_id: int, segments: list[TranscriptSegment], settin
                 "Manual range retained; review the linked source before rendering.",
             ))
     else:
+        candidates, provider = proposal_candidates(segments)
         for candidate in candidates[:int(settings["clip_count"])]:
             evidence = candidate.claim.evidence
             if not evidence:
@@ -341,6 +378,7 @@ def _insert_proposals(project_id: int, segments: list[TranscriptSegment], settin
             ))
     with closing(db()) as connection:
         connection.execute("DELETE FROM clip_proposals WHERE project_id = ?", (project_id,))
+        connection.execute("UPDATE projects SET proposal_provider = ? WHERE id = ?", (provider, project_id))
         connection.executemany(
             """INSERT INTO clip_proposals
                (project_id, title, start, end, hook, caption, evidence_segment_id, evidence_quote, claim_status, reason)
