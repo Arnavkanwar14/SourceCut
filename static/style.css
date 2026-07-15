@@ -119,8 +119,9 @@ time { color: var(--slate); font: 400 12px/1.4 var(--mono); }
 .secondary-link:hover { background: var(--mint); }
 
 footer { width: min(1200px, calc(100% - 48px)); margin: 0 auto; padding: 0 0 48px; font: 400 12px/1.4 var(--mono); }
-[data-reveal] { opacity: 0; transform: translateY(34px); }
-.motion-ready [data-reveal].is-visible { opacity: 1; transform: translateY(0); transition: opacity 620ms ease, transform 620ms cubic-bezier(.2,.8,.2,1); }
+[data-reveal] { opacity: 1; transform: none; }
+.motion-ready [data-reveal].will-reveal { opacity: 0; transform: translateY(20px); }
+.motion-ready [data-reveal].will-reveal.is-visible { opacity: 1; transform: translateY(0); transition: opacity 260ms ease, transform 260ms cubic-bezier(.2,.8,.2,1); }
 
 @keyframes object-float { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-18px) rotate(2deg); } }
 @keyframes orbit-turn { to { transform: rotate(360deg); } }

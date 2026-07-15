@@ -204,6 +204,8 @@ def test_workspace_client_uses_in_place_updates_and_reduced_motion() -> None:
     styles = (root / "static" / "style.css").read_text(encoding="utf-8")
     assert "window.location.reload" not in script
     assert "sourcecut:job-started" in script
+    assert "const essential" in script
+    assert "will-reveal" in styles
     assert "prefers-reduced-motion" in styles
 
 

@@ -17,10 +17,12 @@
       { threshold: 0.08 },
     );
     revealItems.forEach((item) => {
+      const essential = item.matches(".project-library, .outputs-library, .project-card, .output-card");
       const bounds = item.getBoundingClientRect();
-      if (bounds.top < window.innerHeight && bounds.bottom > 0) {
+      if (essential || (bounds.top < window.innerHeight && bounds.bottom > 0)) {
         item.classList.add("is-visible");
       } else {
+        item.classList.add("will-reveal");
         observer.observe(item);
       }
     });
