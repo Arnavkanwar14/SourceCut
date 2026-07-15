@@ -24,6 +24,10 @@ python -m venv .venv
 
 Then open `http://127.0.0.1:8000`.
 
+## Security model
+
+SourceCut is a single-user local workspace and its demo command binds to `127.0.0.1` only. State-changing browser requests reject cross-site origins, and the app sends local-only content, framing, MIME-sniffing, and referrer protections. Do not expose this instance on a LAN or public host: it has no accounts, authentication, or per-user project ownership.
+
 ## Judge flow
 
 1. Open the seeded `ApexFlow product webinar` review.

@@ -64,6 +64,34 @@ app = FastAPI(title="SourceCut")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
+SECURITY_HEADERS = {
+    "Content-Security-Policy": "default-src 'self'; base-uri 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; media-src 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+    "Referrer-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+}
+UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def secure_response(response: Response) -> Response:
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
+@app.middleware("http")
+async def protect_local_browser_actions(request: Request, call_next):
+    """Block hostile pages from submitting forms to this local-only workspace."""
+    if request.method in UNSAFE_METHODS:
+        origin = request.headers.get("origin")
+        expected_origin = f"{request.url.scheme}://{request.url.netloc}"
+        if origin and origin != expected_origin:
+            return secure_response(PlainTextResponse("Cross-site request blocked.", status_code=403))
+        if request.headers.get("sec-fetch-site") == "cross-site":
+            return secure_response(PlainTextResponse("Cross-site request blocked.", status_code=403))
+    return secure_response(await call_next(request))
+
+
 def db() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(exist_ok=True)
     connection = sqlite3.connect(DB_PATH)

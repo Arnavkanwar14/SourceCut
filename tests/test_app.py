@@ -27,6 +27,18 @@ def test_dashboard_explains_the_product_and_links_seed_review() -> None:
     assert "Turn recordings into evidence-backed social clips." in response.text
     assert "ApexFlow product webinar" in response.text
     assert "/review" in response.text
+    assert response.headers["content-security-policy"].startswith("default-src 'self'")
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_cross_site_posts_cannot_change_local_workspace_state() -> None:
+    blocked = client.post("/claims/1/accept", headers={"Origin": "https://untrusted.example"})
+    assert blocked.status_code == 403
+    assert client.get("/export.json").json()["claims"] == []
+
+    allowed = client.post("/claims/1/accept", headers={"Origin": "http://testserver"}, follow_redirects=False)
+    assert allowed.status_code == 303
 
 
 def test_seeded_review_is_visible() -> None:

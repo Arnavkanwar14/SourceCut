@@ -5,6 +5,7 @@
 - 2026-07-13: Use an original fictional product-webinar recording and transcript, created for SourceCut, with a prepared unsupported-marketing-claim case. Do not use third-party customer, creator, music, brand, or media assets in the submission demo.
 - 2026-07-13: A claim is never marked supported unless its transcript segment IDs, exact quote, and timestamp bounds validate mechanically; ambiguous or missing evidence is `needs_review`.
 - 2026-07-13: Keep a deterministic, no-key seeded review flow as the primary judge experience. Live upload/transcription and model analysis are secondary capabilities.
+- 2026-07-15: SourceCut remains a single-user, loopback-only workspace; cross-site state-changing browser requests are blocked, but public or LAN deployment requires real authentication and project ownership controls.
 - 2026-07-15: Vertical renders preserve the complete source frame over a blurred source backdrop; captions use timed transcript segments and automatic clips align to complete transcript thoughts rather than fixed offsets.
 - 2026-07-15: Proposal refinement rebuilds deterministic candidates while preserving the selected-clip count; connector-led sentences include their preceding complete thought and boundaries never pad into the next spoken segment.
 - 2026-07-15: Local production proposals rank distinct, terminal transcript moments for hooks, concrete outcomes, and workflow proof; they avoid filler and continuations, while sparse transcripts retain one intentionally unsupported claim to demonstrate the evidence safeguard.
