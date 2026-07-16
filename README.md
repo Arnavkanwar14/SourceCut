@@ -1,6 +1,6 @@
 # SourceCut
 
-AI drafts your clips. SourceCut is the gate that won't let an unsupported claim through. It is an evidence-backed content review copilot for marketing teams that does not label a claim as safe until its cited transcript IDs, exact quote, and timestamps validate mechanically.
+AI drafts clips. SourceCut blocks unsupported claims. It is an evidence-backed content review copilot for marketing teams that does not label a claim as safe until its cited transcript IDs, exact quote, and timestamps validate mechanically.
 
 The default experience is a no-key seeded production dashboard. It opens on a fictional project, explains the upload-to-output workflow, and links to an intentionally risky claim that a reviewer can correct against its transcript evidence.
 

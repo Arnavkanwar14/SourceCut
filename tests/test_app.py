@@ -25,8 +25,8 @@ def reset_seeded_claims() -> None:
 def test_dashboard_explains_the_product_and_links_seed_review() -> None:
     response = client.get("/")
     assert response.status_code == 200
-    assert "AI drafts your clips." in response.text
-    assert "unsupported claim through." in response.text
+    assert "AI drafts clips." in response.text
+    assert "SourceCut blocks unsupported claims." in response.text
     assert "ApexFlow product webinar" in response.text
     assert "/review" in response.text
     assert response.headers["content-security-policy"].startswith("default-src 'self'")
