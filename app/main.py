@@ -58,6 +58,21 @@ SEED_SEGMENTS = [
     TranscriptSegment(id="s4", start=102.0, end=108.0, text=TRANSCRIPT[3][2]),
 ]
 SEED_SEGMENT_BY_ID = {segment.id: segment for segment in SEED_SEGMENTS}
+EVALUATION_CASES = json.loads((ROOT / "tests" / "fixtures" / "evidence_cases.json").read_text(encoding="utf-8"))["cases"]
+EVALUATION_WHY = [
+    "Exact quote, segment, and timestamp bounds match.",
+    "Drops the pilot scope and the up-to qualifier.",
+    "Drops the up-to qualifier from a numerical claim.",
+    "Adds an absolute promise not found in the source.",
+    "Exact quote, segment, and timestamp bounds match.",
+    "The claimed outcome is not grounded in the cited wording.",
+    "No source evidence was supplied.",
+    "The cited transcript segment is missing.",
+    "The displayed quote does not match the cited segment.",
+    "The evidence timestamp starts outside the cited segment.",
+    "The paraphrase preserves the cited source meaning.",
+    "The claim is unrelated to the cited source.",
+]
 
 
 app = FastAPI(title="SourceCut")
@@ -145,7 +160,7 @@ def review_seeded_rewrite(claim: sqlite3.Row, rewrite: str):
 
 
 def document(title: str, context: str, action_href: str, action_label: str, status: str, content: str) -> str:
-    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)} | SourceCut</title><link rel="stylesheet" href="/static/style.css?v={ASSET_VERSION}"><script defer src="/static/app.js?v={ASSET_VERSION}"></script></head><body>
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)} | SourceCut</title><link rel="icon" type="image/png" href="/static/sourcecut-film-spiral-clip-object.png"><link rel="stylesheet" href="/static/style.css?v={ASSET_VERSION}"><script defer src="/static/app.js?v={ASSET_VERSION}"></script></head><body>
     <header class="topbar" data-reveal><a class="brand" href="/" aria-label="SourceCut dashboard">SOURCECUT</a><span class="product-context">{escape(context)}</span><nav aria-label="Primary navigation"><a href="/">Projects</a><a href="/upload">Create</a><a href="/#outputs">Outputs</a></nav><a class="nav-action" href="{action_href}">{escape(action_label)}</a><b class="mode-chip">{escape(status)}</b></header>
     <main>{content}</main><footer data-reveal>SourceCut evaluates support in the shown source transcript. It does not certify real-world, legal, or compliance truth.</footer></body></html>'''
 
@@ -265,6 +280,14 @@ def export_controls(approved: int) -> str:
     return f'''<section class="export-band" data-reveal><div><p class="eyebrow">APPROVED PACKAGE</p><h2>{approved} claim{"s" if approved != 1 else ""} ready to hand off.</h2></div><div class="export-actions"><a class="review-link" href="/export.md">Markdown</a><a class="review-link secondary-link" href="/export.json">JSON</a></div></section>'''
 
 
+def judge_scoreboard() -> str:
+    rows = "".join(
+        f'''<li id="scorecase-{index}"><p>{escape(case["claim"])}</p><span class="status {escape(case["expected"])}">{escape(case["expected"].replace("_", " "))}</span><small>{escape(why)}</small></li>'''
+        for index, (case, why) in enumerate(zip(EVALUATION_CASES, EVALUATION_WHY, strict=True), 1)
+    )
+    return f'''<section id="evidence-scorecard" class="evidence-scorecard" data-reveal><div class="section-heading"><div><p class="eyebrow">EVIDENCE GATE</p><h2>12 labelled cases. No live runner.</h2></div><span>{len(EVALUATION_CASES)} cases</span></div><p class="note">This static scorecard mirrors <code>tests/fixtures/evidence_cases.json</code>: each verdict is covered by the automated test suite.</p><ol>{rows}</ol></section>'''
+
+
 def seed_review_page() -> str:
     claims = get_claims()
     transcript = "".join(f'<li id="evidence-{segment_id}"><time>{time}</time><span>{escape(text)}</span></li>' for segment_id, time, text in TRANSCRIPT)
@@ -287,7 +310,7 @@ def home() -> str:
     ) or '<p class="empty-state">No uploaded projects yet. Start with a local recording or open the seeded review below.</p>'
     seed = '''<article class="project-card seed-card" data-reveal><div class="project-card-top"><span class="status">seeded demo</span><span>no key needed</span></div><h2>ApexFlow product webinar</h2><p>See an unsupported marketing claim become a timestamp-backed rewrite.</p><a class="review-link" href="/review">Open evidence review</a></article>'''
     example = '''<article class="project-card example-card" data-reveal><div class="project-card-top"><span class="status">judge demo</span><span>no key needed</span></div><h2>SourceCut production example</h2><p>Open source playback, evidence-backed proposals, and a finished original output with its handoff package.</p><div class="example-actions"><form method="post" action="/examples/production"><button>Open Judge Demo</button></form></div></article>'''
-    header = project_header("WORK & PRODUCTIVITY", "Turn recordings into evidence-backed social clips.", "SourceCut helps marketing teams choose moments, preserve the source behind every claim, and produce reviewable videos without losing context.", "3 steps", "source · review · render")
+    header = project_header("WORK & PRODUCTIVITY", "AI drafts your clips. SourceCut is the gate that won't let an unsupported claim through.", "Every publishable hook and caption stays tied to the exact source quote and timestamp that supports it.", "3 steps", "source · review · render")
     content = f'''{header}<section class="dashboard-intro" data-reveal><div><p class="eyebrow">PRODUCTION DESK</p><h2>From source to a confident handoff.</h2></div><ol><li><strong>1</strong><span>Upload a recording and choose its social edit preset.</span></li><li><strong>2</strong><span>Review proposed clips against the source transcript.</span></li><li><strong>3</strong><span>Render selected clips and export their evidence package.</span></li></ol><a class="nav-action" href="/upload">Create a project</a></section><section class="project-library" data-reveal><div class="section-heading"><div><p class="eyebrow">PROJECTS</p><h2>Production library</h2></div><a href="/upload">New project</a></div><div class="project-grid">{seed}{example}{project_cards}</div></section><section id="outputs" class="dashboard-note" data-reveal><p class="eyebrow">WHAT MAKES IT DIFFERENT</p><p>Every selected clip carries its original timestamp and supporting transcript quote. SourceCut can accelerate production, but it never turns a weak claim into an approved one.</p></section>'''
     return document("Projects", "Evidence-backed production", "/upload", "Create project", "Local mode", content)
 
@@ -309,7 +332,7 @@ def load_production_example() -> RedirectResponse:
         project_id = create_example_project()
     except FileNotFoundError as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
-    return RedirectResponse(f"/projects/{project_id}", status_code=303)
+    return RedirectResponse(f"/projects/{project_id}#scorecase-2", status_code=303)
 
 
 @app.post("/upload")
@@ -361,7 +384,8 @@ def workspace(project: sqlite3.Row) -> str:
     progress = f'''<section class="job-panel" data-job-status="/projects/{project["id"]}/status" data-workspace-fragments="/projects/{project["id"]}/workspace-fragments" data-reveal><div><p class="eyebrow">LOCAL JOB</p><h2 data-job-stage>{escape(job["stage"] if job else "Ready")}</h2><p data-job-detail>{job_detail}</p><div class="job-meter" aria-label="Job progress"><span data-job-progress style="width: {job_progress}%"></span></div><p class="job-timing">{job_timing}</p></div><span class="status" data-job-state>{escape(job["status"] if job else status)}</span></section>'''
     render_action = f'''<div class="proposal-actions"><form method="post" action="/projects/{project["id"]}/refine-cuts" data-action-form><button class="secondary" {'disabled' if processing else ''}>Rebuild clip picks</button></form><form method="post" action="/projects/{project["id"]}/render" data-action-form><button data-render-button {'disabled' if not selected or processing else ''}>Render {selected} selected clip{'s' if selected != 1 else ''}</button></form></div>'''
     selection_summary = f'''<div class="selection-summary" aria-live="polite"><span><strong data-selected-count>{selected}</strong> selected for render</span><span><strong data-ready-count>{ready}</strong> finished outputs</span></div>'''
-    desk = f'''{progress}<p class="proposal-provider" data-reveal><span>PROPOSAL SOURCE</span>{provider}</p><section class="production-workspace" data-reveal><aside class="source-column"><div class="panel-heading"><p class="eyebrow">SOURCE PREVIEW</p><span>Click a proposal to seek</span></div>{player}<p class="source-note">Full-frame source stays linked to each proposal. Use the timestamped transcript to check context before selecting.</p></aside><section id="clip-review" class="proposal-column"><div class="section-heading"><div><p class="eyebrow">CLIP REVIEW</p><h2>Review before render.</h2></div><div data-render-actions>{render_action}</div></div><div data-selection-summary>{selection_summary}</div><div class="clip-proposals" data-clip-proposals>{clip_cards}</div></section><aside class="transcript-column"><div class="panel-heading"><p class="eyebrow">SOURCE TRANSCRIPT</p><span>Click to seek</span></div><ol>{transcript}</ol></aside></section><section id="outputs" class="outputs-library" data-reveal><div class="section-heading"><div><p class="eyebrow">OUTPUTS</p><h2>Rendered production files</h2></div><a href="/projects/{project["id"]}/export.json">Export package</a></div><div class="output-grid" data-output-grid>{outputs}</div></section>'''
+    scorecard = judge_scoreboard() if project["name"] == "SourceCut production example" else ""
+    desk = f'''{progress}{scorecard}<p class="proposal-provider" data-reveal><span>PROPOSAL SOURCE</span>{provider}</p><section class="production-workspace" data-reveal><aside class="source-column"><div class="panel-heading"><p class="eyebrow">SOURCE PREVIEW</p><span>Click a proposal to seek</span></div>{player}<p class="source-note">Full-frame source stays linked to each proposal. Use the timestamped transcript to check context before selecting.</p></aside><section id="clip-review" class="proposal-column"><div class="section-heading"><div><p class="eyebrow">CLIP REVIEW</p><h2>Review before render.</h2></div><div data-render-actions>{render_action}</div></div><div data-selection-summary>{selection_summary}</div><div class="clip-proposals" data-clip-proposals>{clip_cards}</div></section><aside class="transcript-column"><div class="panel-heading"><p class="eyebrow">SOURCE TRANSCRIPT</p><span>Click to seek</span></div><ol>{transcript}</ol></aside></section><section id="outputs" class="outputs-library" data-reveal><div class="section-heading"><div><p class="eyebrow">OUTPUTS</p><h2>Rendered production files</h2></div><a href="/projects/{project["id"]}/export.json">Export package</a></div><div class="output-grid" data-output-grid>{outputs}</div></section>'''
     return document(project["name"], "Production workspace", "/upload", "New project", status, header + desk)
 
 

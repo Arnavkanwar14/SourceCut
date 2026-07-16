@@ -25,12 +25,14 @@ def reset_seeded_claims() -> None:
 def test_dashboard_explains_the_product_and_links_seed_review() -> None:
     response = client.get("/")
     assert response.status_code == 200
-    assert "Turn recordings into evidence-backed social clips." in response.text
+    assert "AI drafts your clips." in response.text
+    assert "unsupported claim through." in response.text
     assert "ApexFlow product webinar" in response.text
     assert "/review" in response.text
     assert response.headers["content-security-policy"].startswith("default-src 'self'")
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["x-content-type-options"] == "nosniff"
+    assert '/static/sourcecut-film-spiral-clip-object.png' in response.text
 
 
 def test_cross_site_posts_cannot_change_local_workspace_state() -> None:
@@ -98,6 +100,14 @@ def test_example_project_opens_with_player_and_proposals() -> None:
     assert "Local deterministic fallback" in response.text
     assert "Rendered production files" in response.text
     assert "/outputs/" in response.text
+    assert "12 labelled cases. No live runner." in response.text
+    assert "Drops the pilot scope and the up-to qualifier." in response.text
+
+
+def test_judge_demo_deep_links_to_the_qualifier_drop_case() -> None:
+    response = client.post("/examples/production", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("#scorecase-2")
 
 
 def test_gpt_proposals_are_persisted_but_still_evidence_gated(monkeypatch, tmp_path: Path) -> None:

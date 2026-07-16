@@ -1,8 +1,12 @@
 # SourceCut
 
-SourceCut is an evidence-backed content review copilot for marketing teams. It turns a long-form source into a reviewable content package, but does not label a claim as safe until its cited transcript IDs, exact quote, and timestamps validate mechanically.
+AI drafts your clips. SourceCut is the gate that won't let an unsupported claim through. It is an evidence-backed content review copilot for marketing teams that does not label a claim as safe until its cited transcript IDs, exact quote, and timestamps validate mechanically.
 
 The default experience is a no-key seeded production dashboard. It opens on a fictional project, explains the upload-to-output workflow, and links to an intentionally risky claim that a reviewer can correct against its transcript evidence.
+
+## Why It Matters
+
+A marketer clips a webinar and turns “in a 12-customer pilot, teams reduced handoff time by up to 40 percent” into “Customers save 40%.” The pilot scope and qualifier disappear, and the usual backstop is a human rewatching the source. SourceCut catches that loss before publish by keeping the claim attached to its source wording and time range. This is the kind of substantiation risk where objective advertising claims need a reasonable basis before they are disseminated; SourceCut is not legal advice or a substitute for final compliance review. [FTC advertising substantiation policy](https://www.ftc.gov/legal-library/browse/ftc-policy-statement-regarding-advertising-substantiation)
 
 ## Run the judge demo
 
