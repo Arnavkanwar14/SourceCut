@@ -10,7 +10,7 @@ from app.main import app
 from app.review import Candidate, Evidence, TranscriptSegment, review_claim
 
 
-client = TestClient(app)
+client = TestClient(app, headers={"Origin": "http://testserver"})
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +42,27 @@ def test_cross_site_posts_cannot_change_local_workspace_state() -> None:
 
     allowed = client.post("/claims/1/accept", headers={"Origin": "http://testserver"}, follow_redirects=False)
     assert allowed.status_code == 303
+
+
+def test_posts_without_origin_metadata_cannot_change_local_workspace_state() -> None:
+    anonymous_client = TestClient(app)
+    blocked = anonymous_client.post("/claims/1/accept")
+    assert blocked.status_code == 403
+    assert client.get("/export.json").json()["claims"] == []
+
+
+def test_file_routes_reject_cross_site_requests_and_sanitize_download_names(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"video")
+    project_id = production.create_project(r"..\..\customer report?.mp4", source, production.settings_from_form({}))
+
+    blocked = client.get(f"/projects/{project_id}/source", headers={"Origin": "https://untrusted.example"})
+    allowed = client.get(f"/projects/{project_id}/source")
+
+    assert blocked.status_code == 403
+    assert allowed.status_code == 200
+    assert main.safe_download_filename(r"..\..\customer report?.mp4", "source.mp4") == "customer report_.mp4"
+    assert ".." not in allowed.headers["content-disposition"]
 
 
 def test_seeded_review_is_visible() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from zipfile import ZIP_DEFLATED, ZipFile
 from contextlib import closing
@@ -94,16 +95,33 @@ def secure_response(response: Response) -> Response:
     return response
 
 
+def is_cross_site_request(request: Request) -> bool:
+    origin = request.headers.get("origin")
+    expected_origin = f"{request.url.scheme}://{request.url.netloc}"
+    return (origin is not None and origin != expected_origin) or request.headers.get("sec-fetch-site") == "cross-site"
+
+
+def safe_download_filename(name: str, fallback: str) -> str:
+    filename = name.replace("\\", "/").rsplit("/", 1)[-1]
+    filename = re.sub(r"[^A-Za-z0-9._ -]", "_", filename).strip(" .")
+    return filename or fallback
+
+
+def reject_cross_site_download(request: Request) -> None:
+    if is_cross_site_request(request):
+        raise HTTPException(status_code=403, detail="Cross-site file request blocked.")
+
+
 @app.middleware("http")
 async def protect_local_browser_actions(request: Request, call_next):
     """Block hostile pages from submitting forms to this local-only workspace."""
     if request.method in UNSAFE_METHODS:
         origin = request.headers.get("origin")
-        expected_origin = f"{request.url.scheme}://{request.url.netloc}"
-        if origin and origin != expected_origin:
+        fetch_site = request.headers.get("sec-fetch-site")
+        if is_cross_site_request(request):
             return secure_response(PlainTextResponse("Cross-site request blocked.", status_code=403))
-        if request.headers.get("sec-fetch-site") == "cross-site":
-            return secure_response(PlainTextResponse("Cross-site request blocked.", status_code=403))
+        if origin is None and fetch_site != "same-origin":
+            return secure_response(PlainTextResponse("Request origin required.", status_code=403))
     return secure_response(await call_next(request))
 
 
@@ -415,12 +433,13 @@ def project_workspace(project_id: int) -> str:
 
 
 @app.get("/projects/{project_id}/source")
-def project_source(project_id: int) -> FileResponse:
+def project_source(project_id: int, request: Request) -> FileResponse:
+    reject_cross_site_download(request)
     project = get_project(project_id)
     source = Path(project["source_path"]) if project else None
     if not source or not source.is_file():
         raise HTTPException(status_code=404, detail="Source media not found")
-    return FileResponse(source, filename=project["name"])
+    return FileResponse(source, filename=safe_download_filename(project["name"], source.name))
 
 
 @app.get("/projects/{project_id}/status")
@@ -510,7 +529,8 @@ def retry_clip(project_id: int, clip_id: int, request: Request) -> Response:
 
 
 @app.get("/projects/{project_id}/outputs/{clip_id}")
-def project_output(project_id: int, clip_id: int) -> FileResponse:
+def project_output(project_id: int, clip_id: int, request: Request) -> FileResponse:
+    reject_cross_site_download(request)
     path = output_path(project_id, clip_id)
     if not path:
         raise HTTPException(status_code=404, detail="Rendered output not found")
@@ -518,7 +538,8 @@ def project_output(project_id: int, clip_id: int) -> FileResponse:
 
 
 @app.get("/projects/{project_id}/export.json")
-def project_export(project_id: int) -> JSONResponse:
+def project_export(project_id: int, request: Request) -> JSONResponse:
+    reject_cross_site_download(request)
     project = get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -527,7 +548,8 @@ def project_export(project_id: int) -> JSONResponse:
 
 
 @app.get("/projects/{project_id}/export.md")
-def project_export_markdown(project_id: int) -> PlainTextResponse:
+def project_export_markdown(project_id: int, request: Request) -> PlainTextResponse:
+    reject_cross_site_download(request)
     project = get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -536,7 +558,8 @@ def project_export_markdown(project_id: int) -> PlainTextResponse:
 
 
 @app.get("/projects/{project_id}/handoff.zip")
-def project_handoff_zip(project_id: int) -> FileResponse:
+def project_handoff_zip(project_id: int, request: Request) -> FileResponse:
+    reject_cross_site_download(request)
     project = get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
