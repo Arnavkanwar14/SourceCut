@@ -49,13 +49,13 @@ h2 { margin-bottom: 14px; font: 400 clamp(30px, 4vw, 48px)/1.05 var(--display); 
 .hero-detail, .note, .reason, footer { color: var(--slate); }
 
 .project-hero { min-height: 475px; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr); align-items: end; gap: 40px; padding: 48px 0 0; }
-.hero-copy { padding-bottom: 48px; }
-.hero-detail { max-width: 590px; margin-bottom: 28px; font-size: 18px; }
-.progress { width: 190px; padding: 20px; border-radius: 24px; background: var(--carbon); color: var(--paper); }
+.hero-copy { width: min(100%, 640px); padding-bottom: 48px; }
+.hero-detail { max-width: none; margin-bottom: 28px; font-size: 18px; }
+.progress { width: 100%; padding: 20px; border-radius: 24px; background: var(--carbon); color: var(--paper); }
 .progress strong { display: block; font: 400 48px/1.05 var(--display); }
 .progress span { display: block; margin-top: 8px; color: var(--mint); font: 700 12px/1.3 var(--body); letter-spacing: 0.05em; text-transform: uppercase; }
-.object-stage { position: relative; min-height: 425px; display: grid; place-items: center; overflow: hidden; }
-.object-stage img { position: relative; z-index: 2; width: min(100%, 440px); mix-blend-mode: multiply; animation: object-float 6s ease-in-out infinite; }
+.object-stage { position: relative; min-height: 425px; display: grid; place-items: center; overflow: hidden; background: #d1d0cd; }
+.object-stage img { position: relative; z-index: 2; width: min(100%, 440px); animation: object-float 6s ease-in-out infinite; }
 .object-orbit { position: absolute; display: block; border: 1px solid var(--carbon); border-radius: 50%; opacity: 0.18; }
 .orbit-one { width: 350px; height: 150px; animation: orbit-turn 12s linear infinite; }
 .orbit-two { width: 260px; height: 420px; border-color: var(--mint); opacity: 0.9; animation: orbit-turn 16s linear infinite reverse; }
@@ -64,7 +64,7 @@ h2 { margin-bottom: 14px; font: 400 clamp(30px, 4vw, 48px)/1.05 var(--display); 
 .review-layout.upload-review { grid-template-columns: minmax(0, 1fr) 340px; }
 .angle-rail { padding: 24px 0; }
 .angle { width: 100%; display: block; margin-bottom: 10px; padding: 16px; border: 0; border-radius: 24px; background: transparent; color: var(--carbon); text-align: left; }
-.angle:hover, .angle:focus-visible { background: var(--paper); color: var(--carbon); transform: translateX(8px); }
+.angle:hover, .angle:focus-visible { background: var(--paper); color: var(--carbon); }
 .angle.active { background: var(--mint); }
 .angle strong { display: block; font-size: 17px; }
 .angle span { display: block; margin-top: 8px; color: var(--slate); font: 400 12px/1.35 var(--body); }
@@ -74,14 +74,14 @@ h2 { margin-bottom: 14px; font: 400 clamp(30px, 4vw, 48px)/1.05 var(--display); 
 .review-heading > span { padding-top: 4px; color: #e3e3e3; font: 700 12px/1.3 var(--body); letter-spacing: 0.05em; text-transform: uppercase; }
 .review-intro { max-width: 660px; margin-bottom: 28px; padding-bottom: 24px; border-bottom: 1px solid var(--slate); color: var(--ash); font-size: 18px; }
 .claims { display: grid; gap: 16px; }
-.claim { padding: 24px; border-radius: 32px; background: var(--paper); color: var(--carbon); transition: transform 220ms ease, background 220ms ease; }
-.claim:hover { transform: translateX(10px) rotate(0.2deg); }
+.claim { padding: 24px; border-radius: 32px; background: var(--paper); color: var(--carbon); transition: background 220ms ease; }
+.claim:hover { background: var(--mist); }
 .claim.unsupported { background: var(--yellow); }
 .claim.needs_review { background: var(--mist); }
 .claim.supported, .claim.approved { background: var(--mint); }
 .claim .status { background: var(--carbon); color: var(--paper); }
-.claim-top a { font: 700 12px/1.3 var(--body); letter-spacing: 0.02em; text-decoration: underline; text-underline-offset: 3px; transition: color 160ms ease, transform 160ms ease; }
-.claim-top a:hover { color: var(--slate); transform: translateX(-3px); }
+.claim-top a { font: 700 12px/1.3 var(--body); letter-spacing: 0.02em; text-decoration: underline; text-underline-offset: 3px; transition: color 160ms ease; }
+.claim-top a:hover { color: var(--slate); }
 .claim-copy { margin: 24px 0 10px; font-size: 20px; font-weight: 700; }
 .reason { margin-bottom: 20px; font-size: 14px; }
 form { margin: 0; }
@@ -165,8 +165,8 @@ footer { width: min(1200px, calc(100% - 48px)); margin: 0 auto; padding: 0 0 48p
   .review-heading { display: block; }
   .review-heading > span { display: block; margin-top: 12px; }
   .claim { padding: 20px; }
-  .claim-top { display: block; }
-  .claim-top a { display: inline-block; margin-top: 12px; }
+  .claim-top { display: grid; gap: 12px; }
+  .claim-top a { display: inline-block; margin: 0; }
   .upload-surface { grid-template-columns: 1fr; gap: 24px; }
   .export-band { display: block; margin-top: 40px; }
   .export-actions { margin-top: 20px; }
@@ -284,8 +284,8 @@ footer { width: min(1200px, calc(100% - 48px)); margin: 0 auto; padding: 0 0 48p
 .selection-summary { display: flex; justify-content: space-between; gap: 12px; margin: -6px 0 16px; padding: 12px 0; border-top: 1px solid var(--slate); border-bottom: 1px solid var(--slate); color: var(--ash); font: 700 12px/1.2 var(--body); letter-spacing: 0.05em; text-transform: uppercase; }
 .selection-summary strong { color: var(--mint); font-size: 16px; }
 .clip-proposals { display: grid; gap: 12px; }
-.clip-proposal { overflow: hidden; border-radius: 16px; background: var(--paper); color: var(--carbon); transition: transform 180ms ease, outline-color 180ms ease; }
-.clip-proposal:hover { transform: translateX(6px); }
+.clip-proposal { overflow: hidden; border-radius: 16px; background: var(--paper); color: var(--carbon); transition: background 180ms ease, outline-color 180ms ease; }
+.clip-proposal:hover { background: var(--mist); }
 .clip-proposal.chosen { outline: 4px solid var(--mint); outline-offset: -4px; }
 .clip-proposal.unsupported { background: var(--yellow); }
 .clip-proposal.needs_review { background: var(--mist); }
@@ -339,6 +339,7 @@ footer { width: min(1200px, calc(100% - 48px)); margin: 0 auto; padding: 0 0 48p
 @media (max-width: 980px) {
   .dashboard-intro, .create-form, .production-workspace { grid-template-columns: 1fr; }
   .dashboard-intro { align-items: start; }
+  .dashboard-intro .nav-action { justify-self: start; }
   .dashboard-intro ol { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .project-grid, .output-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .create-copy, .source-column, .transcript-column { position: static; }

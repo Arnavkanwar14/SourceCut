@@ -82,6 +82,8 @@ def test_styles_use_the_self_hosted_display_font_and_fluid_headings() -> None:
     assert "clamp(40px, 7vw, 80px)" in styles
     assert "10px/" not in styles
     assert "11px/" not in styles
+    assert ".dashboard-intro .nav-action { justify-self: start; }" in styles
+    assert "background: #d1d0cd" in styles
 
 
 def test_grounded_rewrite_can_be_accepted_and_restored() -> None:

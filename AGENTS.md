@@ -29,3 +29,4 @@
 - 2026-07-20: Kokoro voiceover renders source-derived sentence beats at measured timings, shifts overruns without cutting words, crossfades beat edges, and uses a bounded final-frame postroll so the last supported sentence completes; cache fingerprints include settings plus the beat-sync logic version.
 - 2026-07-20: Anchor navigation removes reveal hiding from the target section immediately, while project workspace and handoff misses render inside the SourceCut document shell instead of raw JSON.
 - 2026-07-20: SourceCut self-hosts Archivo Black for display copy, uses fluid sentence-case headings, and reserves the mono face for timestamps and source identifiers so the production desk stays legible at every viewport.
+- 2026-07-20: Hero artwork keeps its original opaque background, so the object stage uses the asset's sampled #d1d0cd backdrop; review controls use color-only hover feedback and mobile claim metadata stacks with a real gap.
