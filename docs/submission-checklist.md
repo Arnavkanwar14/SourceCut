@@ -10,7 +10,7 @@
 
 ## Complete before Devpost submission
 
-- [ ] Replace `TBD` in `README.md` and `docs/CODEX_BUILD_LOG.md` with the required Build Week `/feedback` session ID.
+- [x] Record the required Build Week `/feedback` session ID in `README.md` and `docs/CODEX_BUILD_LOG.md`.
 - [ ] Create the Devpost project: `SourceCut`, category `Work & Productivity`, repository URL, submitter type, and country of residence.
 - [ ] Record the public YouTube video using `docs/demo-script.md`, keep it under three minutes, and explain Codex and the guarded GPT-5.6 path accurately.
 - [ ] Rehearse the exact submitted flow from a fresh clone and compare the video against the final commit.

@@ -21,6 +21,6 @@ The project was built in Codex during Build Week. The submitted Judge Demo is de
 
 ## Required submission evidence
 
-- Build Week `/feedback` session ID: `TBD before submission`.
+- Build Week `/feedback` session ID: `019f5c94-f927-7441-bc28-439e89b247cd`.
 - Dated SourceCut commits: available in Git history.
 - Verification: `pytest` passes the seed workflow and evidence evaluation suite.

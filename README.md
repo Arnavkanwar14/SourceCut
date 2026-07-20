@@ -94,7 +94,7 @@ SourceCut was built in Codex during OpenAI Build Week. Codex helped implement th
 
 The application stays usable without keys while Build Week credits are unavailable. GPT-5.6 is an optional, explicitly enabled upload-analysis provider; the seeded judge flow stays deterministic and key-free.
 
-Before submitting, add the required Build Week `/feedback` session ID here: `TBD`.
+Build Week `/feedback` session ID: `019f5c94-f927-7441-bc28-439e89b247cd`.
 
 ## Submission notes
 

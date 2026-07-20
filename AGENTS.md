@@ -33,3 +33,4 @@
 - 2026-07-20: Yellow is reserved for warning and error states; mint is the interactive hover color and a dark green focus ring keeps keyboard focus distinct. Seed claim links name their first source timestamp rather than exposing segment IDs.
 - 2026-07-20: Align the hero artwork to the desktop hero's top edge so a long headline cannot push the original film-reel object below the initial viewport.
 - 2026-07-20: Restrict request hosts to loopback and the test host before origin checks to prevent DNS-rebinding bypasses in the local workspace.
+- 2026-07-20: Build Week feedback session ID recorded in the README and Codex build log for the submission form.
