@@ -11,6 +11,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .export import build_package, markdown
 from .media import media_fingerprint, remove_media, save_upload
@@ -77,6 +78,7 @@ EVALUATION_WHY = [
 
 
 app = FastAPI(title="SourceCut")
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 

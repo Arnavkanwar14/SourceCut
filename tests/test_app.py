@@ -51,6 +51,11 @@ def test_posts_without_origin_metadata_cannot_change_local_workspace_state() -> 
     assert client.get("/export.json").json()["claims"] == []
 
 
+def test_unknown_hosts_are_rejected_before_origin_checks() -> None:
+    response = client.get("/", headers={"Host": "rebound.example"})
+    assert response.status_code == 400
+
+
 def test_file_routes_reject_cross_site_requests_and_sanitize_download_names(tmp_path: Path) -> None:
     source = tmp_path / "source.mp4"
     source.write_bytes(b"video")
