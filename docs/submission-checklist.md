@@ -12,6 +12,6 @@
 
 - [x] Record the required Build Week `/feedback` session ID in `README.md` and `docs/CODEX_BUILD_LOG.md`.
 - [ ] Create the Devpost project: `SourceCut`, category `Work & Productivity`, repository URL, submitter type, and country of residence.
-- [ ] Record the public YouTube video using `docs/demo-script.md`, keep it under three minutes, and explain Codex and the guarded GPT-5.6 path accurately.
+- [x] Record the public YouTube video, keep it under three minutes, and explain Codex and the guarded GPT-5.6 path accurately: `https://youtu.be/QB6X026NHoM`.
 - [ ] Rehearse the exact submitted flow from a fresh clone and compare the video against the final commit.
 - [ ] Submit the repository URL, public YouTube URL, local Judge Demo instructions, category, and Build Week evidence before the deadline.

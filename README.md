@@ -101,6 +101,7 @@ Build Week `/feedback` session ID: `019f5c94-f927-7441-bc28-439e89b247cd`.
 - Category: Work & Productivity.
 - Judge Demo: free, local, and no-sign-in.
 - Public repository: https://github.com/Arnavkanwar14/SourceCut
+- Public demo video: https://youtu.be/QB6X026NHoM
 - Product, transcript, UI asset, and demo scenario: original or created specifically for SourceCut. See `ASSET_NOTES.md`.
 - Direct dependency notices: `THIRD_PARTY_NOTICES.md`.
 - Demo narration: `docs/demo-script.md`.

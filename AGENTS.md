@@ -35,3 +35,4 @@
 - 2026-07-20: Restrict request hosts to loopback and the test host before origin checks to prevent DNS-rebinding bypasses in the local workspace.
 - 2026-07-20: Build Week feedback session ID recorded in the README and Codex build log for the submission form.
 - 2026-07-20: Demo MP4 captions use a compact libass font size because SRT point sizes are scaled from the renderer's default canvas.
+- 2026-07-20: Build Week public demo video recorded at https://youtu.be/QB6X026NHoM and confirmed public under three minutes by the project owner.
