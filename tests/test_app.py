@@ -75,6 +75,15 @@ def test_seeded_review_is_visible() -> None:
     assert "/static/sourcecut-seed-demo.mp4" in response.text
 
 
+def test_styles_use_the_self_hosted_display_font_and_fluid_headings() -> None:
+    styles = (Path(__file__).parents[1] / "static" / "style.css").read_text(encoding="utf-8")
+    assert "Archivo Black" in styles
+    assert "Impact" not in styles
+    assert "clamp(40px, 7vw, 80px)" in styles
+    assert "10px/" not in styles
+    assert "11px/" not in styles
+
+
 def test_grounded_rewrite_can_be_accepted_and_restored() -> None:
     accepted = client.post("/claims/1/accept", follow_redirects=True)
     assert accepted.status_code == 200
