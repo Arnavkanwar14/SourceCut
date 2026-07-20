@@ -31,3 +31,4 @@
 - 2026-07-20: SourceCut self-hosts Archivo Black for display copy, uses fluid sentence-case headings, and reserves the mono face for timestamps and source identifiers so the production desk stays legible at every viewport.
 - 2026-07-20: Hero artwork keeps its original opaque background, so the object stage uses the asset's sampled #d1d0cd backdrop; review controls use color-only hover feedback and mobile claim metadata stacks with a real gap.
 - 2026-07-20: Yellow is reserved for warning and error states; mint is the interactive hover color and a dark green focus ring keeps keyboard focus distinct. Seed claim links name their first source timestamp rather than exposing segment IDs.
+- 2026-07-20: Align the hero artwork to the desktop hero's top edge so a long headline cannot push the original film-reel object below the initial viewport.

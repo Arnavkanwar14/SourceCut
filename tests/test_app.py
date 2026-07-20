@@ -86,6 +86,7 @@ def test_styles_use_the_self_hosted_display_font_and_fluid_headings() -> None:
     assert "background: #d1d0cd" in styles
     assert "--focus: #087c55" in styles
     assert "min-height: 80px" in styles
+    assert ".project-hero" in styles and "align-items: start" in styles
 
 
 def test_grounded_rewrite_can_be_accepted_and_restored() -> None:
