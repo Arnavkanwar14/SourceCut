@@ -65,7 +65,8 @@ def render_asset(output: Path, lines: list[tuple[float, str]], duration: float, 
     write_subtitles(rendered_lines, subtitles)
     width, height = size
     subtitle_path = str(subtitles).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
-    font_size = 38 if height < 1000 else 52
+    # libass scales SRT captions from its default canvas, so large point sizes fill the frame.
+    font_size = 10
     video_filter = (
         f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=0xe5e5e5,"
