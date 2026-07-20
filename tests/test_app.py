@@ -171,7 +171,9 @@ def test_project_can_be_deleted_from_library(tmp_path: Path) -> None:
     deleted = client.post(f"/projects/{project_id}/delete", follow_redirects=True)
     assert deleted.status_code == 200
     assert "Delete test project" not in deleted.text
-    assert client.get(f"/projects/{project_id}").status_code == 404
+    missing = client.get(f"/projects/{project_id}")
+    assert missing.status_code == 404
+    assert "That project is not here." in missing.text
     assert source.exists()
 
 
@@ -286,6 +288,7 @@ def test_workspace_client_uses_in_place_updates_and_reduced_motion() -> None:
     assert "sourcecut:job-started" in script
     assert "const asyncAction" in script
     assert "const essential" in script
+    assert "revealAnchorTarget" in script
     assert "will-reveal" in styles
     assert "prefers-reduced-motion" in styles
 

@@ -183,6 +183,11 @@ def document(title: str, context: str, action_href: str, action_label: str, stat
     <main>{content}</main><footer data-reveal>SourceCut evaluates support in the shown source transcript. It does not certify real-world, legal, or compliance truth.</footer></body></html>'''
 
 
+def project_not_found() -> HTMLResponse:
+    content = '''<section class="not-found" data-reveal><p class="eyebrow">NOT FOUND</p><h1>That project is not here.</h1><p class="hero-detail">Choose a project from the library or start a new review.</p><a class="review-link" href="/">View projects</a></section>'''
+    return HTMLResponse(document("Project not found", "Production workspace", "/", "View projects", "Not found", content), status_code=404)
+
+
 def evidence_object() -> str:
     return '''<div class="object-stage" aria-hidden="true"><span class="object-orbit orbit-one"></span><span class="object-orbit orbit-two"></span><img src="/static/sourcecut-film-spiral-clip-object.png" alt=""></div>'''
 
@@ -424,11 +429,11 @@ def output_card(project_id: int, clip: sqlite3.Row, settings: dict[str, object])
 
 
 @app.get("/projects/{project_id}", response_class=HTMLResponse)
-def project_workspace(project_id: int) -> str:
+def project_workspace(project_id: int) -> Response:
     init_db()
     project = get_project(project_id)
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        return project_not_found()
     return workspace(project)
 
 
@@ -572,7 +577,7 @@ def project_handoff_zip(project_id: int, request: Request) -> FileResponse:
 def project_handoff(project_id: int) -> str:
     project = get_project(project_id)
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        return project_not_found()
     settings = json.loads(project["settings_json"])
     ready = [clip for clip in get_clips(project_id) if clip["selected"] and clip["render_status"] == "ready"]
     cards = "".join(output_card(project_id, clip, settings) for clip in ready) or '<p class="empty-state">Finish at least one selected clip to create a handoff package.</p>'

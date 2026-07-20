@@ -1,8 +1,17 @@
 (() => {
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const revealItems = [...document.querySelectorAll("[data-reveal]")];
+  const revealAnchorTarget = () => {
+    if (!window.location.hash) return;
+    const target = document.querySelector(window.location.hash);
+    const section = target?.closest("[data-reveal]");
+    section?.classList.remove("will-reveal");
+    section?.classList.add("is-visible");
+  };
 
   document.documentElement.classList.add("motion-ready");
+  revealAnchorTarget();
+  window.addEventListener("hashchange", revealAnchorTarget);
 
   if (reducedMotion || !("IntersectionObserver" in window)) {
     revealItems.forEach((item) => item.classList.add("is-visible"));
@@ -17,7 +26,7 @@
       { threshold: 0.08 },
     );
     revealItems.forEach((item) => {
-      const essential = item.matches(".project-library, .outputs-library, .project-card, .output-card");
+      const essential = item.matches(".project-library, .outputs-library, .project-card, .output-card") || Boolean(window.location.hash && item.contains(document.querySelector(window.location.hash)));
       const bounds = item.getBoundingClientRect();
       if (essential || (bounds.top < window.innerHeight && bounds.bottom > 0)) {
         item.classList.add("is-visible");
