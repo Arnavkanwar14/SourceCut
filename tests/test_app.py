@@ -69,7 +69,7 @@ def test_seeded_review_is_visible() -> None:
     response = client.get("/review")
     assert response.status_code == 200
     assert "Customers save 40%." in response.text
-    assert "Evidence: s1, s2" in response.text
+    assert "View source at 00:18" in response.text
     assert "/static/app.js" in response.text
     assert "/static/sourcecut-film-spiral-clip-object.png" in response.text
     assert "/static/sourcecut-seed-demo.mp4" in response.text
@@ -84,6 +84,8 @@ def test_styles_use_the_self_hosted_display_font_and_fluid_headings() -> None:
     assert "11px/" not in styles
     assert ".dashboard-intro .nav-action { justify-self: start; }" in styles
     assert "background: #d1d0cd" in styles
+    assert "--focus: #087c55" in styles
+    assert "min-height: 80px" in styles
 
 
 def test_grounded_rewrite_can_be_accepted_and_restored() -> None:

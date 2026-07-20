@@ -278,7 +278,8 @@ def handoff_archive(project: sqlite3.Row, clips: list[sqlite3.Row], package: dic
 def claim_html(claim: sqlite3.Row) -> str:
     status = "approved" if claim["approved"] else claim["status"]
     text = claim["rewrite"] if claim["approved"] else claim["draft"]
-    evidence = claim["evidence_ids"].replace(",", ", ")
+    evidence_id = claim["evidence_ids"].split(",")[0]
+    source_label = f"View source at {format_time(SEED_SEGMENT_BY_ID[evidence_id].start)}"
     action = (
         f'<form method="post" action="/claims/{claim["id"]}/restore" data-action-form><button class="secondary">Restore draft</button></form>'
         if claim["approved"]
@@ -286,7 +287,7 @@ def claim_html(claim: sqlite3.Row) -> str:
     )
     proposal = f'<p class="proposed-rewrite"><span>PROPOSED REWRITE</span>{escape(claim["rewrite"])}</p>' if not claim["approved"] and claim["rewrite"] != claim["draft"] else ""
     editor = "" if claim["approved"] else f'''<details class="claim-editor"><summary>Edit rewrite</summary><form method="post" action="/claims/{claim["id"]}/edit" data-action-form><label for="rewrite-{claim["id"]}">Rewrite grounded in the linked evidence</label><textarea id="rewrite-{claim["id"]}" name="rewrite" rows="3" required>{escape(claim["rewrite"])}</textarea><button class="secondary">Save and recheck</button></form></details>'''
-    return f'''<article class="claim {status}" data-reveal><div class="claim-top"><span class="status">{escape(status.replace("_", " "))}</span><a href="#evidence-{claim["evidence_ids"].split(",")[0]}" data-evidence-link>Evidence: {escape(evidence)}</a></div><p class="claim-copy">{escape(text)}</p>{proposal}<p class="reason">{escape(claim["reason"])}</p><div class="claim-actions">{action}{editor}</div></article>'''
+    return f'''<article class="claim {status}" data-reveal><div class="claim-top"><span class="status">{escape(status.replace("_", " "))}</span><a href="#evidence-{evidence_id}" data-evidence-link>{escape(source_label)}</a></div><p class="claim-copy">{escape(text)}</p>{proposal}<p class="reason">{escape(claim["reason"])}</p><div class="claim-actions">{action}{editor}</div></article>'''
 
 
 def evidence_panel(transcript: str, note: str = "Statuses reflect support in this transcript, not real-world verification.") -> str:
