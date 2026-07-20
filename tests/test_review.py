@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.llm import ModelCandidate, ModelCandidateSet, generate_candidates
+from app.llm import ModelCandidate, ModelCandidateSet, SYSTEM_PROMPT, generate_candidates
 from app.production import clean_clip_window
 from app.review import Evidence, TranscriptSegment, local_candidates, review_claim
 
@@ -18,6 +18,11 @@ def test_evidence_cases_match_expected_statuses() -> None:
     for case in data["cases"]:
         evidence = Evidence.model_validate(case["evidence"]) if case["evidence"] else None
         assert review_claim(case["claim"], evidence, segments).status == case["expected"], case["claim"]
+
+
+def test_model_drafts_have_a_minimum_and_maximum_word_budget() -> None:
+    assert "8 to 18 word" in SYSTEM_PROMPT
+    assert "terminal punctuation" in SYSTEM_PROMPT
 
 
 def test_evidence_requires_complete_structure() -> None:

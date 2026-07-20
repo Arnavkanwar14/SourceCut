@@ -49,7 +49,7 @@ SourceCut is a single-user local workspace and its demo command binds to `127.0.
 
 The Create screen provides curated controls for platform, clip count, duration, captions, framing, source audio or optional AI voiceover, original proof-card overlays, focus, and manual ranges. The renderer supports vertical, square, and landscape source cuts with local FFmpeg. It validates each output before it appears in the project library.
 
-Quiet-gap trimming is shown as a non-destructive edit plan in this release so the original evidence timestamps stay exact. Voiceover is opt-in and runs locally through the quantized Kokoro ONNX model; it narrates the exact source evidence quote and never silently falls back to original audio. A failed local synthesis is reported on that clip instead.
+Quiet-gap trimming is shown as a non-destructive edit plan in this release so the original evidence timestamps stay exact. Voiceover is opt-in and runs locally through the quantized Kokoro ONNX model; it speaks source-derived, timestamped beats, measures each WAV before scheduling it, and never silently falls back to original audio. When a final supported sentence needs extra room, SourceCut holds the final frame for up to two seconds instead of cutting a word. A failed local synthesis is reported on that clip instead.
 
 ## Marketer handoff
 

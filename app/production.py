@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import math
 import re
 import shutil
 import sqlite3
@@ -12,6 +14,19 @@ from pathlib import Path
 
 from .media import ffmpeg_exe, inspect_media, media_fingerprint
 from .llm import generate_candidates
+from .narration import (
+    CROSSFADE_SECONDS,
+    MAX_BEAT_WORDS,
+    MAX_POSTROLL_SECONDS,
+    MIN_BEAT_WORDS,
+    NARRATION_LOGIC_VERSION,
+    NarrationBeat,
+    schedule_beats,
+    source_narration_beats,
+    speed_for_window,
+    target_window,
+    with_terminal_punctuation,
+)
 from .review import Candidate, TranscriptSegment, local_candidates
 from .transcription import transcribe_media
 
@@ -126,6 +141,9 @@ def init_db() -> None:
             connection.execute("ALTER TABLE projects ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT ''")
         if "proposal_provider" not in project_columns:
             connection.execute("ALTER TABLE projects ADD COLUMN proposal_provider TEXT NOT NULL DEFAULT 'Local deterministic fallback'")
+        clip_columns = {row["name"] for row in connection.execute("PRAGMA table_info(clip_proposals)")}
+        if "render_fingerprint" not in clip_columns:
+            connection.execute("ALTER TABLE clip_proposals ADD COLUMN render_fingerprint TEXT NOT NULL DEFAULT ''")
         connection.commit()
 
 
@@ -430,10 +448,7 @@ def refine_project_cuts(project_id: int) -> bool:
     for clip in clips:
         old_output = Path(clip["output_path"]) if clip["output_path"] else None
         if old_output and old_output.exists() and old_output.resolve().is_relative_to(OUTPUT_DIR.resolve()):
-            old_output.unlink(missing_ok=True)
-            old_output.with_suffix(".srt").unlink(missing_ok=True)
-            old_output.with_suffix(".voice.mp3").unlink(missing_ok=True)
-            old_output.with_suffix(".voice.wav").unlink(missing_ok=True)
+            cleanup_render_artifacts(old_output)
     _insert_proposals(project_id, segments, settings)
     if selected_count:
         with closing(db()) as connection:
@@ -523,7 +538,7 @@ def srt_timestamp(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
 
 
-def write_timed_subtitles(project_id: int, clip: sqlite3.Row, destination: Path) -> None:
+def write_timed_subtitles(project_id: int, clip: sqlite3.Row, destination: Path, output_duration: float | None = None) -> None:
     start = float(clip["start"])
     end = float(clip["end"])
     cues: list[str] = []
@@ -534,6 +549,10 @@ def write_timed_subtitles(project_id: int, clip: sqlite3.Row, destination: Path)
             continue
         text = str(segment["text"]).replace("-->", "->").replace("\n", " ")
         cues.append(f"{index}\n{srt_timestamp(cue_start - start)} --> {srt_timestamp(cue_end - start)}\n{text}\n")
+    if cues and output_duration and output_duration > end - start:
+        last = cues[-1].split("\n")
+        last[1] = f"{last[1].split(' --> ')[0]} --> {srt_timestamp(output_duration)}"
+        cues[-1] = "\n".join(last)
     if not cues:
         cues.append(f"1\n00:00:00,000 --> {srt_timestamp(end - start)}\n{clip['caption']}\n")
     destination.write_text("\n".join(cues), encoding="utf-8")
@@ -550,16 +569,139 @@ def _kokoro_engine():
     return KOKORO_ENGINE
 
 
-def _synthesize_kokoro_voice(clip: sqlite3.Row, voice_file: Path, voice: object) -> None:
+def _synthesize_kokoro_beat(text: str, voice_file: Path, voice: object, speed: float = 1.0) -> float:
     import soundfile as soundfile
 
-    text = str(clip["evidence_quote"] or clip["caption"]).replace("\n", " ").strip()
+    text = with_terminal_punctuation(text)
     if not text:
         raise RuntimeError("This clip has no source text to narrate.")
-    samples, sample_rate = _kokoro_engine().create(text, voice=_kokoro_voice(voice), speed=1.0, lang="en-us")
+    samples, sample_rate = _kokoro_engine().create(text, voice=_kokoro_voice(voice), speed=speed, lang="en-us")
     soundfile.write(voice_file, samples, sample_rate)
     if not voice_file.is_file() or voice_file.stat().st_size == 0:
         raise RuntimeError("Kokoro did not create an audio file.")
+    info = soundfile.info(voice_file)
+    if not info.frames or not info.samplerate:
+        raise RuntimeError("Kokoro created an unreadable audio file.")
+    return info.frames / info.samplerate
+
+
+def cleanup_render_artifacts(destination: Path) -> None:
+    try:
+        managed = destination.resolve().is_relative_to(OUTPUT_DIR.resolve())
+    except OSError:
+        managed = False
+    if not managed:
+        return
+    destination.unlink(missing_ok=True)
+    destination.with_suffix(".srt").unlink(missing_ok=True)
+    destination.with_suffix(".voice.wav").unlink(missing_ok=True)
+    destination.with_suffix(".timing.json").unlink(missing_ok=True)
+    beats_dir = destination.parent / f"{destination.stem}.beats"
+    if beats_dir.exists():
+        shutil.rmtree(beats_dir)
+
+
+def voice_timing_path(voice_file: Path) -> Path:
+    return voice_file.parent / f"{voice_file.stem.removesuffix('.voice')}.timing.json"
+
+
+def render_cache_fingerprint(project: sqlite3.Row, clip: sqlite3.Row, settings: dict[str, object]) -> str:
+    segments = get_segments(int(project["id"]))
+    beats = source_narration_beats(segments, float(clip["start"]), float(clip["end"]))
+    payload = {
+        "logic": NARRATION_LOGIC_VERSION,
+        "source": project["source_fingerprint"],
+        "settings": settings,
+        "clip": {key: clip[key] for key in ("id", "start", "end", "evidence_quote", "caption")},
+        "beats": [{"source_id": beat.source_id, "start": beat.desired_start, "text": beat.text} for beat in beats],
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _mix_voiceover_beats(beat_files: list[Path], schedule: list[dict[str, object]], voice_file: Path, track_duration: float) -> None:
+    if not beat_files or len(beat_files) != len(schedule):
+        raise RuntimeError("No timestamped voice beats were available.")
+    inputs = [argument for beat_file in beat_files for argument in ("-i", str(beat_file))]
+    filters: list[str] = []
+    labels: list[str] = []
+    for index, item in enumerate(schedule):
+        duration = float(item["duration"])
+        fade = min(CROSSFADE_SECONDS, max(0.01, duration / 3))
+        delay = max(0, round(float(item["start"]) * 1000))
+        label = f"beat{index}"
+        filters.append(
+            f"[{index}:a]asetpts=PTS-STARTPTS,afade=t=in:st=0:d={fade:.3f},"
+            f"afade=t=out:st={max(0.0, duration - fade):.3f}:d={fade:.3f},adelay={delay}:all=1[{label}]"
+        )
+        labels.append(f"[{label}]")
+    filters.append(f"{''.join(labels)}amix=inputs={len(labels)}:duration=longest:normalize=0,apad,atrim=duration={track_duration:.3f}[voice]")
+    result = subprocess.run(
+        [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", *inputs, "-filter_complex", ";".join(filters), "-map", "[voice]", "-c:a", "pcm_s16le", str(voice_file)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode or not voice_file.is_file() or voice_file.stat().st_size == 0:
+        raise RuntimeError(result.stderr[-500:] or "FFmpeg could not assemble timestamped narration.")
+
+
+def build_voiceover_track(project: sqlite3.Row, clip: sqlite3.Row, voice_file: Path, voice: object, clip_duration: float) -> float:
+    segments = get_segments(int(project["id"]))
+    beats = source_narration_beats(segments, float(clip["start"]), float(clip["end"]))
+    if not beats:
+        text = with_terminal_punctuation(str(clip["evidence_quote"] or clip["caption"]))
+        beats = [NarrationBeat("evidence-1", 0.0, text)] if text else []
+    if not beats:
+        raise RuntimeError("This clip has no source text to narrate.")
+
+    beats_dir = voice_file.parent / f"{voice_file.stem.replace('.voice', '')}.beats"
+    beats_dir.mkdir(parents=True, exist_ok=True)
+    measured: list[dict[str, object]] = []
+    for index, beat in enumerate(beats):
+        beat_file = beats_dir / f"{index + 1:02d}.wav"
+        base_duration = _synthesize_kokoro_beat(beat.text, beat_file, voice)
+        speed = speed_for_window(base_duration, target_window(beats, index, clip_duration))
+        if speed > 1.001:
+            measured_duration = _synthesize_kokoro_beat(beat.text, beat_file, voice, speed)
+        else:
+            measured_duration = base_duration
+        measured.append({"beat": beat, "file": beat_file, "duration": measured_duration, "speed": speed})
+
+    # Preserve the opening and final source event. If measured narration cannot
+    # fit, compress the middle before failing rather than chopping a spoken word.
+    while len(measured) > 2:
+        schedule = schedule_beats([item["beat"] for item in measured], [float(item["duration"]) for item in measured])
+        if float(schedule[-1]["start"]) + float(schedule[-1]["duration"]) <= clip_duration + 0.01:
+            break
+        measured.pop(-2)
+    schedule = schedule_beats([item["beat"] for item in measured], [float(item["duration"]) for item in measured])
+    track_duration = max(clip_duration, float(schedule[-1]["start"]) + float(schedule[-1]["duration"]))
+    postroll = track_duration - clip_duration
+    if postroll > MAX_POSTROLL_SECONDS:
+        raise RuntimeError("Narration needs more than the allowed 2-second postroll to finish the final source sentence.")
+    _mix_voiceover_beats([item["file"] for item in measured], schedule, voice_file, track_duration)
+
+    timing = {
+        "logic_version": NARRATION_LOGIC_VERSION,
+        "word_budget": {"min": MIN_BEAT_WORDS, "max": MAX_BEAT_WORDS},
+        "max_speed": 1.10,
+        "crossfade_seconds": CROSSFADE_SECONDS,
+        "postroll_seconds": round(postroll, 3),
+        "output_duration": round(track_duration, 3),
+        "beats": [
+            {
+                "word_count": item["beat"].word_count,
+                "duration": round(float(item["duration"]), 3),
+                "speed": round(float(item["speed"]), 3),
+                "measured_words_per_second": round(item["beat"].word_count / max(float(item["duration"]), 0.001), 3),
+                "source_id": item["beat"].source_id,
+                "text": item["beat"].text,
+                "start": schedule[index]["start"],
+            }
+            for index, item in enumerate(measured)
+        ],
+    }
+    voice_timing_path(voice_file).write_text(json.dumps(timing, indent=2), encoding="utf-8")
+    return track_duration
 
 
 def _render_one(project: sqlite3.Row, clip: sqlite3.Row, settings: dict[str, object]) -> tuple[bool, str, str]:
@@ -568,32 +710,36 @@ def _render_one(project: sqlite3.Row, clip: sqlite3.Row, settings: dict[str, obj
         return False, "Rendering requires an MP4 source. This source remains available for transcript review.", ""
     destination = OUTPUT_DIR / str(project["id"]) / f"sourcecut-clip-{clip['id']}.mp4"
     destination.parent.mkdir(parents=True, exist_ok=True)
+    cleanup_render_artifacts(destination)
     captions = destination.with_suffix(".srt")
     duration = max(0.2, float(clip["end"]) - float(clip["start"]))
-    filter_chain = render_filter(str(settings["platform"]), str(settings["framing"]))
-    if settings["captions"] != "none":
-        write_timed_subtitles(int(project["id"]), clip, captions)
-        subtitle_file = str(captions).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
-        font_size = "8" if settings["captions"] == "bold" else "6"
-        style = f"FontName=Arial,FontSize={font_size},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1,Alignment=2,MarginV=20"
-        filter_chain = f"{filter_chain},subtitles=filename='{subtitle_file}':force_style='{style}'"
-    if settings.get("proof_cards"):
-        filter_chain += ",drawbox=x=40:y=40:w=440:h=105:color=black@0.9:t=fill:enable='between(t,0.4,2.7)',drawtext=text='SOURCE EVIDENCE':fontcolor=white:fontsize=28:x=66:y=78:enable='between(t,0.4,2.7)'"
+    render_duration = duration
     extra_inputs: list[str] = []
     audio_map = "0:a:0?"
     audio_filters: list[str] = []
     if settings.get("audio_mode") == "voiceover":
         voice_file = destination.with_suffix(".voice.wav")
         try:
-            _synthesize_kokoro_voice(clip, voice_file, settings.get("voice"))
+            render_duration = build_voiceover_track(project, clip, voice_file, settings.get("voice"), duration)
             extra_inputs = ["-i", str(voice_file)]
             audio_map = "1:a:0"
-            audio_filters = ["-af", f"apad=pad_dur={duration}"]
         except Exception as error:
             return False, f"Local Kokoro voiceover failed: {str(error)[-500:]}", ""
+    filter_chain = render_filter(str(settings["platform"]), str(settings["framing"]))
+    if settings["captions"] != "none":
+        write_timed_subtitles(int(project["id"]), clip, captions, render_duration)
+        subtitle_file = str(captions).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+        font_size = "8" if settings["captions"] == "bold" else "6"
+        style = f"FontName=Arial,FontSize={font_size},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1,Alignment=2,MarginV=20"
+        filter_chain = f"{filter_chain},subtitles=filename='{subtitle_file}':force_style='{style}'"
+    if settings.get("proof_cards"):
+        filter_chain += ",drawbox=x=40:y=40:w=440:h=105:color=black@0.9:t=fill:enable='between(t,0.4,2.7)',drawtext=text='SOURCE EVIDENCE':fontcolor=white:fontsize=28:x=66:y=78:enable='between(t,0.4,2.7)'"
+    if render_duration > duration:
+        postroll_frames = math.ceil((render_duration - duration) * 30)
+        filter_chain += f",trim=duration={duration:.3f},setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop={postroll_frames}"
     command = [
         ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", "-ss", str(clip["start"]),
-        "-i", str(source), *extra_inputs, "-t", str(duration), "-map", "0:v:0?", "-map", audio_map,
+        "-i", str(source), *extra_inputs, "-t", str(render_duration), "-map", "0:v:0?", "-map", audio_map,
         "-vf", filter_chain,
         "-c:v", "libx264", "-c:a", "aac", *audio_filters, "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(destination),
     ]
@@ -625,7 +771,8 @@ def run_render(project_id: int, job_id: int, clip_ids: set[int] | None = None) -
             for index, clip in enumerate(clips, 1):
                 progress = 10 + int((index - 1) / len(clips) * 80)
                 update_job(job_id, "running", "Render selected clips", f"Rendering {index} of {len(clips)}.", progress)
-                if output_path(project_id, int(clip["id"])):
+                fingerprint = render_cache_fingerprint(project, clip, settings)
+                if output_path(project_id, int(clip["id"])) and clip["render_fingerprint"] == fingerprint:
                     update_job(job_id, "running", "Reuse verified render", f"Reusing cached output {index} of {len(clips)}.", progress)
                     continue
                 with closing(db()) as connection:
@@ -634,8 +781,8 @@ def run_render(project_id: int, job_id: int, clip_ids: set[int] | None = None) -
                 ok, value, warning = _render_one(project, clip, settings)
                 with closing(db()) as connection:
                     connection.execute(
-                        "UPDATE clip_proposals SET render_status = ?, output_path = ?, error = ? WHERE id = ?",
-                        ("ready" if ok else "failed", value if ok else "", warning if ok else value, clip["id"]),
+                        "UPDATE clip_proposals SET render_status = ?, output_path = ?, error = ?, render_fingerprint = ? WHERE id = ?",
+                        ("ready" if ok else "failed", value if ok else "", warning if ok else value, fingerprint if ok else "", clip["id"]),
                     )
                     connection.commit()
             with closing(db()) as connection:

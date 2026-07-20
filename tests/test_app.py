@@ -340,6 +340,11 @@ def test_cached_render_reuses_verified_output(monkeypatch, tmp_path: Path) -> No
             (project_id, "Cached", "Hook", "Caption", "Quote", "Evidence", str(output)),
         )
         connection.commit()
+    clip = production.get_clips(project_id)[0]
+    fingerprint = production.render_cache_fingerprint(production.get_project(project_id), clip, production.settings_from_form({}))
+    with production.closing(production.db()) as connection:
+        connection.execute("UPDATE clip_proposals SET render_fingerprint = ? WHERE id = ?", (fingerprint, clip["id"]))
+        connection.commit()
     monkeypatch.setattr(production, "_render_one", lambda *_: (_ for _ in ()).throw(AssertionError("cache should be reused")))
     job_id = production.make_job(project_id, "render", "Queued")
     production.run_render(project_id, job_id)
@@ -358,7 +363,7 @@ def test_voiceover_uses_kokoro_voices_and_never_falls_back_to_source_audio(monke
             (project_id, "Moment", "Hook", "Caption", "Exact supported source quote.", "Direct source wording."),
         )
         connection.commit()
-    monkeypatch.setattr(production, "_synthesize_kokoro_voice", lambda *_: (_ for _ in ()).throw(RuntimeError("voice engine unavailable")))
+    monkeypatch.setattr(production, "build_voiceover_track", lambda *_: (_ for _ in ()).throw(RuntimeError("voice engine unavailable")))
     ok, detail, warning = production._render_one(production.get_project(project_id), production.get_clips(project_id)[0], settings)
     assert not ok
     assert "Local Kokoro voiceover failed" in detail

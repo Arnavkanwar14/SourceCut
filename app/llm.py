@@ -20,7 +20,7 @@ class ModelCandidateSet(BaseModel):
 
 
 SYSTEM_PROMPT = """You select short-form marketing content candidates from a transcript.
-Return exactly three candidates. Each candidate needs a concise title, a source-grounded draft,
+Return exactly three candidates. Each candidate needs a concise title and an 8 to 18 word, source-grounded draft ending in terminal punctuation,
 and one evidence object using exact transcript segment IDs, an exact quote, and timestamp bounds.
 Do not invent facts, outcomes, or source quotes. Preserve qualifiers such as pilot scope and up to.
 """
